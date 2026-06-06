@@ -1,0 +1,11 @@
+# 暫存 / 產生物,不需上傳
+__pycache__/
+*.pyc
+cache/
+reports/
+*.png
+_st.log
+_st.err
+
+# 機密:本機 secrets 不要上傳(雲端在網站後台設定)
+.streamlit/secrets.toml

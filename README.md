@@ -1,0 +1,174 @@
+# 台股短線技術分析工具 (tw_ta)
+
+用 Python 抓台股資料,做技術指標、籌碼面、基本面分析、條件選股、實戰回測與
+風險試算,並提供網頁介面操作。偏短線/技術操作取向。
+
+> ⚠️ **免責聲明**:本工具所有輸出僅為技術/籌碼/基本面資料的客觀計算與整理,
+> **不是投資建議**,不保證準確或獲利。股價來自 yfinance(免費、約 15 分鐘延遲、
+> 日線收盤),不適合當沖即時下單。回測為歷史統計,不代表未來。
+> 實際買賣請自行判斷並承擔風險。
+
+## 安裝(只需一次)
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+## ⭐ 最簡單:用網頁介面
+
+雙擊 **`開啟介面.bat`**,瀏覽器自動開啟操作介面。頂部顯示**大盤總覽**(加權指數、
+0050、櫃買指數),下方五個分頁:
+
+| 分頁 | 功能 |
+|------|------|
+| 🔍 **清單掃描** | 一鍵掃觀察清單,表格列出每檔短線訊號、漲跌(紅綠標色)、可加查三大法人、一鍵匯出 Excel |
+| 🎯 **條件篩選** | 勾選技術+籌碼+基本面條件(如均線多頭+外資連買+本益比<20),從股池篩出符合的股票 |
+| 📊 **個股分析(短線)** | 互動 K 線圖、籌碼面(三大法人+融資券)、基本面(本益比/殖利率/營收年增)、實戰回測+權益曲線、部位計算 |
+| 📈 **中線分析** | 波段角度:季線/年線排列、週KD、波段突破,個股趨勢體檢 + 批次掃中線偏多股 |
+| ⚙️ **自選股管理** | 在介面直接新增/刪除觀察股並儲存 |
+
+關閉介面:在跳出的黑色視窗按 `Ctrl+C` 或直接關掉。第一次啟動若問 email,按 Enter 跳過。
+
+## 🌐 讓朋友也能用(部署到 Streamlit Cloud)
+
+把這個資料夾放到 GitHub,再用免費的 Streamlit Community Cloud 一鍵部署,
+就會得到一個公開網址,朋友點連結隨時能用(你電腦不用開)。
+
+**步驟:**
+1. 註冊/登入 GitHub(https://github.com)。
+2. 在 GitHub 點右上角 **+ → New repository**,取個名字(例如 `tw-ta`),
+   可選 Private(私人),按 **Create repository**。
+3. 在本資料夾把程式推上去(本地 git 已幫你 commit 好,只差設定遠端):
+   ```powershell
+   git remote add origin https://github.com/<你的帳號>/<庫名>.git
+   git push -u origin main
+   ```
+   (第一次 push 會跳出 GitHub 登入授權,照著登入即可)
+4. 到 https://share.streamlit.io 用 GitHub 登入 → **Create app** →
+   選剛剛的 repo、分支 `main`、主檔案填 `app.py` → **Deploy**。
+5. 等一兩分鐘安裝套件,就會得到網址 `https://<你的app>.streamlit.app`,
+   把這個網址傳給朋友即可。
+
+**進階(選用):** 想讓籌碼/基本面更穩定,到 Streamlit Cloud 的
+**App → Settings → Secrets** 貼上:
+```toml
+FINMIND_TOKEN = "你的FinMind token"
+```
+程式會自動讀取(到 https://finmindtrade.com 免費註冊可拿 token)。
+
+> ⚠ 雲端版說明:**每日排程掃描 + Email 通知是你本機的功能,雲端不會跑**
+> (雲端沒有你的 Windows 排程器)。但互動分析、掃描、篩選、回測、中線分析等
+> 核心功能都正常。另外雲端的觀察清單編輯不會永久保存(重新部署會還原)。
+
+## 功能與命令列用法
+
+### 清單掃描
+```powershell
+python scan.py                 # 掃 watchlist.txt
+python scan.py 2330 2454       # 指定代號
+python scan.py --bullish-only  # 只看有看多訊號
+```
+
+### 條件篩選器
+```powershell
+python screener.py             # 跑範例條件(可在檔案 __main__ 改條件)
+```
+從股池 `universe.txt`(約60檔中大型股,可自行擴充)篩選。支援條件:RSI 範圍、
+KD 金叉、均線多頭、MACD 翻紅、布林突破、站上月線、乖離上限、法人連買天數、
+法人合計、本益比上限、殖利率下限、營收年增率下限。
+
+### 中線(波段)分析
+```powershell
+python swing.py 2330           # 2330 中線趨勢體檢(多頭/偏多/盤整/偏空/空頭)
+```
+與短線不同,看的是趨勢:月線/季線/半年線/年線排列、站上年線與否、季線翻揚、
+週 KD、波段突破(創近季新高)。用 2 年資料計算。
+
+中線訊號也可回測(在 UI 中線分頁,或程式呼叫 `swing.backtest_swing(df)`),
+用 5 年資料、較長持有(預設20日)、較寬停損(預設8%/停利20%)。
+
+### 實戰回測
+```powershell
+python backtest.py 2330 5      # 2330,持有5日,含停損停利+手續費,並與0050比較
+```
+事件式回測:隔日進場、停損/停利、扣手續費(0.1425%×2)+證交稅(0.3%)、
+最大回撤、權益曲線、與大盤 0050 買進持有比較。
+
+### 籌碼/基本面
+```powershell
+python chips.py 2330           # 三大法人買賣超(張)
+python fundamentals.py 2330    # 股名/本益比/殖利率/月營收年增/融資券
+```
+
+### 部位計算 + ATR 停損
+```powershell
+python risk.py 2330 500000 2   # 本金50萬、單筆風險2%,算可買張數與停損價
+```
+固定風險法:每筆最多賠「本金×風險%」,反推張數;停損用 ATR×倍數。
+
+### 每日自動掃描 + Email 通知
+```powershell
+python daily_scan.py           # 掃描、存報告到 reports\,設定後寄 Email
+```
+**排程已設定好** ✅:Windows 工作排程器已建立任務「**台股每日掃描**」,
+每週一~週五 14:30(台股收盤後)自動執行,報告存到 `reports\YYYY-MM-DD.txt`。
+報告含**短線當日訊號**與**中線波段趨勢**兩部分。
+
+管理排程(PowerShell):
+```powershell
+Get-ScheduledTaskInfo -TaskName "台股每日掃描"   # 看下次/上次執行
+Start-ScheduledTask     -TaskName "台股每日掃描"   # 立刻手動跑一次
+Disable-ScheduledTask   -TaskName "台股每日掃描"   # 暫停
+Unregister-ScheduledTask -TaskName "台股每日掃描"  # 移除
+```
+也可在「工作排程器」GUI 裡找到同名任務調整時間。
+
+**Email 設定**(選用):設系統環境變數 `TWTA_SMTP_USER`(Gmail)、`TWTA_SMTP_PASS`
+(Gmail 應用程式密碼,非登入密碼)、`TWTA_MAIL_TO`(收件信箱),排程跑完就會寄信。
+詳見 `notify.py`。未設定時只存報告檔。
+
+### 個股技術圖(存 PNG)
+```powershell
+python plot.py 2330
+```
+
+## 技術訊號一覽
+
+**看多**:KD 黃金交叉、MACD 翻紅、均線多頭排列、帶量突破月線、RSI 超賣回升、
+突破布林上軌、量價同步(OBV)、爆量。
+**警示**:KD 死亡交叉、RSI 過熱(>80)、乖離過大(>12%)。
+
+**中線訊號**:季線黃金交叉(MA60上穿MA120)、站上年線、週KD黃金交叉、波段突破
+(創近季新高)、季線翻揚且站穩;趨勢分級為 多頭/偏多/盤整/偏空/空頭。
+
+指標:MA(5/10/20/60/120/240)、KD、週KD、MACD、週MACD、RSI、布林通道、
+乖離率 BIAS、OBV、ATR。
+
+## 資料來源
+- **股價**:yfinance(免費,約15分鐘延遲日線)。本地快取在 `cache\`,當日重用、隔日自動清除。
+- **籌碼/基本面**:FinMind 免費 API。免 token 可用但有流量限制;常用建議到
+  https://finmindtrade.com 免費註冊拿 token,設環境變數 `FINMIND_TOKEN` 提高額度。
+
+## 檔案結構
+| 檔案 | 用途 |
+|------|------|
+| `app.py` | ⭐ Streamlit 網頁介面(主要入口) |
+| `data.py` | yfinance 股價抓取 + 批次下載 + 本地快取 |
+| `indicators.py` | 技術指標計算 |
+| `signals.py` | 短線訊號判斷 |
+| `backtest.py` | 實戰回測引擎 |
+| `swing.py` | 中線(波段)趨勢分析 |
+| `screener.py` | 自訂條件選股 |
+| `chips.py` | 三大法人籌碼面 |
+| `fundamentals.py` | 股名/估值/營收/融資券 |
+| `risk.py` | 部位計算 + ATR 停損 |
+| `daily_scan.py` | 每日自動掃描 + 報告 |
+| `notify.py` | Email 通知 |
+| `scan.py` / `plot.py` | 命令列掃描 / 技術圖 |
+| `watchlist.txt` / `universe.txt` | 觀察清單 / 篩選股池 |
+| `開啟介面.bat` 等 | Windows 一鍵啟動 |
+
+## 想自訂?
+- **改訊號門檻 / 加指標**:編輯 `signals.py` / `indicators.py`(在 `enrich()` 接上)。
+- **改篩選股池**:編輯 `universe.txt`。
+- **換資料源**(即時報價、更完整籌碼):替換 `data.py` 的 `fetch()` 即可,其餘不受影響。
