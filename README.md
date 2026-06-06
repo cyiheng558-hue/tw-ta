@@ -169,8 +169,24 @@ python plot.py 2330
 
 ## 資料來源
 - **股價**:yfinance(免費,約15分鐘延遲日線)。本地快取在 `cache\`,當日重用、隔日自動清除。
-- **籌碼/基本面**:FinMind 免費 API。免 token 可用但有流量限制;常用建議到
-  https://finmindtrade.com 免費註冊拿 token,設環境變數 `FINMIND_TOKEN` 提高額度。
+- **籌碼/基本面/新聞**:FinMind 免費 API。所有 FinMind 請求都經過 `finmind.py`
+  的**本地快取**(`cache/finmind/`,當日重用、隔日自動清),同一查詢一天只打一次,
+  且綜合評分與各區塊共用快取,大幅降低請求數。
+
+### 遇到流量限制怎麼辦
+
+FinMind 免費版有流量上限(匿名最嚴,且跟同 IP 的人共用)。兩招解決:
+
+1. **拿免費 token(最有效)**:到 https://finmindtrade.com 免費註冊 → 會員中心複製
+   API token。額度比匿名大很多。設定方式:
+   - **本機**:設環境變數 `FINMIND_TOKEN`(PowerShell 永久設定:
+     `setx FINMIND_TOKEN "你的token"`,設完重開終端機/程式)。
+   - **雲端(Streamlit Cloud)**:App → Settings → Secrets 貼上
+     `FINMIND_TOKEN = "你的token"`,程式會自動讀取。
+2. **靠本地快取**:同一檔當天重複看不會再打 API;掃描/篩選也會重用股價與籌碼快取。
+
+> 即使沒 token,程式遇到流量上限也只會該區塊顯示「抓取中/流量上限」,不會整個壞掉,
+> 稍等(額度每小時恢復)或設 token 即可。
 
 ## 檔案結構
 | 檔案 | 用途 |
@@ -186,6 +202,7 @@ python plot.py 2330
 | `fundamentals.py` | 股名/估值/EPS/毛利率/ROE/配息/本益比評價 |
 | `news.py` | 個股新聞 |
 | `score.py` | 技術+基本+籌碼 綜合評分 |
+| `finmind.py` | FinMind 共用抓取層 + 本地快取(降低流量) |
 | `risk.py` | 部位計算 + ATR 停損 |
 | `daily_scan.py` | 每日自動掃描 + 報告 |
 | `notify.py` | Email 通知 |

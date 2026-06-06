@@ -8,36 +8,17 @@ import os
 import json
 import datetime as _dt
 import pandas as pd
-import requests
+
+from finmind import fm_get
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CACHE_DIR = os.path.join(HERE, "cache")
 os.makedirs(CACHE_DIR, exist_ok=True)
-API = "https://api.finmindtrade.com/api/v4/data"
-
-
-def _params(dataset, code=None, start=None):
-    p = {"dataset": dataset}
-    if code is not None:
-        p["data_id"] = str(code).upper().replace(".TWO", "").replace(".TW", "").strip()
-    if start:
-        p["start_date"] = start
-    token = os.environ.get("FINMIND_TOKEN")
-    if token:
-        p["token"] = token
-    return p
 
 
 def _get(dataset, code=None, start=None, timeout=20):
-    try:
-        r = requests.get(API, params=_params(dataset, code, start), timeout=timeout)
-        j = r.json()
-    except Exception as e:
-        print(f"  [FinMind] {dataset} {code} 失敗:{e}")
-        return []
-    if j.get("msg") != "success":
-        return []
-    return j.get("data", [])
+    """改走共用快取層(fm_get),同一天同查詢只打一次 API。"""
+    return fm_get(dataset, code, start, timeout)
 
 
 # ---------------- 股票名稱 ----------------

@@ -7,22 +7,15 @@ FinMind 免 token 也能用,但有流量限制(約每小時數百次);
 回傳「淨買賣超(張)」:外資、投信、自營商,以及合計。
 正值=買超(法人買進),負值=賣超。1 張 = 1000 股。
 """
-import os
 import datetime as _dt
 import pandas as pd
-import requests
 
-API = "https://api.finmindtrade.com/api/v4/data"
+from finmind import fm_get
 
 # FinMind 的法人名稱 -> 中文歸類
 _FOREIGN = {"Foreign_Investor", "Foreign_Dealer_Self"}
 _TRUST = {"Investment_Trust"}
 _DEALER = {"Dealer_self", "Dealer_Hedging"}
-
-
-def _code_only(code: str) -> str:
-    """去掉 .TW/.TWO 後綴,FinMind 只要純代號。"""
-    return code.upper().replace(".TWO", "").replace(".TW", "").strip()
 
 
 def fetch_institutional(code: str, days: int = 60) -> pd.DataFrame:
@@ -31,24 +24,11 @@ def fetch_institutional(code: str, days: int = 60) -> pd.DataFrame:
     欄位:外資、投信、自營商、合計(單位:張)。抓不到時回傳空表。
     """
     start = (_dt.date.today() - _dt.timedelta(days=days * 2)).isoformat()
-    params = {
-        "dataset": "TaiwanStockInstitutionalInvestorsBuySell",
-        "data_id": _code_only(code),
-        "start_date": start,
-    }
-    token = os.environ.get("FINMIND_TOKEN")
-    if token:
-        params["token"] = token
-    try:
-        r = requests.get(API, params=params, timeout=20)
-        j = r.json()
-    except Exception as e:
-        print(f"  [籌碼] {code} 抓取失敗:{e}")
-        return pd.DataFrame()
-    if j.get("msg") != "success" or not j.get("data"):
+    data = fm_get("TaiwanStockInstitutionalInvestorsBuySell", code, start)
+    if not data:
         return pd.DataFrame()
 
-    raw = pd.DataFrame(j["data"])
+    raw = pd.DataFrame(data)
     raw["net"] = (raw["buy"] - raw["sell"]) / 1000.0  # 股 -> 張
 
     def _group(names):
@@ -104,18 +84,10 @@ def cumulative_net(code: str, days: int = 60) -> pd.DataFrame:
 def foreign_holding(code: str, days: int = 60) -> pd.DataFrame:
     """外資持股比率(%)趨勢。"""
     start = (_dt.date.today() - _dt.timedelta(days=days * 2)).isoformat()
-    params = {"dataset": "TaiwanStockShareholding",
-              "data_id": _code_only(code), "start_date": start}
-    token = os.environ.get("FINMIND_TOKEN")
-    if token:
-        params["token"] = token
-    try:
-        j = requests.get(API, params=params, timeout=20).json()
-    except Exception:
+    data = fm_get("TaiwanStockShareholding", code, start)
+    if not data:
         return pd.DataFrame()
-    if j.get("msg") != "success" or not j.get("data"):
-        return pd.DataFrame()
-    df = pd.DataFrame(j["data"])
+    df = pd.DataFrame(data)
     out = pd.DataFrame({"外資持股比率": pd.to_numeric(df["ForeignInvestmentSharesRatio"], errors="coerce")})
     out.index = pd.to_datetime(df["date"])
     return out.sort_index().dropna().tail(days)
@@ -124,18 +96,10 @@ def foreign_holding(code: str, days: int = 60) -> pd.DataFrame:
 def margin_short_ratio(code: str) -> dict:
     """券資比(%)= 融券餘額 / 融資餘額 * 100。比率高代表空方相對積極。"""
     start = (_dt.date.today() - _dt.timedelta(days=20)).isoformat()
-    params = {"dataset": "TaiwanStockMarginPurchaseShortSale",
-              "data_id": _code_only(code), "start_date": start}
-    token = os.environ.get("FINMIND_TOKEN")
-    if token:
-        params["token"] = token
-    try:
-        j = requests.get(API, params=params, timeout=20).json()
-    except Exception:
+    data = fm_get("TaiwanStockMarginPurchaseShortSale", code, start)
+    if not data:
         return {}
-    if j.get("msg") != "success" or not j.get("data"):
-        return {}
-    last = pd.DataFrame(j["data"]).iloc[-1]
+    last = pd.DataFrame(data).iloc[-1]
     margin = float(last["MarginPurchaseTodayBalance"])
     short = float(last["ShortSaleTodayBalance"])
     ratio = (short / margin * 100) if margin else 0.0
