@@ -60,6 +60,27 @@ FINMIND_TOKEN = "你的FinMind token"
 > (雲端沒有你的 Windows 排程器)。但互動分析、掃描、篩選、回測、中線分析等
 > 核心功能都正常。另外雲端的觀察清單編輯不會永久保存(重新部署會還原)。
 
+### 部署後要更新網站
+
+Streamlit Cloud 會**自動**偵測 GitHub 有新版本並重新部署,你不用碰 Streamlit 後台。
+本機改完東西後,只要把修改推上 GitHub 即可:
+
+**最簡單:雙擊 `更新網站.bat`** — 它會自動 commit、同步遠端、push,
+網站約 1 分鐘後自動更新。
+
+手動指令版(等同批次檔內容):
+```powershell
+git add -A
+git commit -m "更新說明"
+git pull --rebase origin main   # 先同步遠端,避免被擋
+git push origin main
+```
+
+小提醒:
+- 黑視窗顯示 `nothing to commit` = 沒有新變更,正常。
+- 出現 `CONFLICT` = 本機與遠端改到同處衝突,需手動解決(可求助)。
+- `cache/`、`reports/` 等暫存已被 `.gitignore` 排除,不會上傳。
+
 ## 功能與命令列用法
 
 ### 清單掃描
