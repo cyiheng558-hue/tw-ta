@@ -271,6 +271,15 @@ def jump_to_stock(codes, key):
         st.success(f"已帶入 **{pick}**,點上方『📊 個股分析』分頁即可看到。")
 
 
+def styled_table(df, color_cols=()):
+    """統一表格格式:float 顯示 2 位小數、空值顯示「—」、指定欄位紅綠標色。"""
+    sty = df.style.format(precision=2, na_rep="—")
+    cc = [c for c in color_cols if c in df.columns]
+    if cc:
+        sty = sty.map(color_updown, subset=cc)
+    return sty
+
+
 def color_updown(val):
     """漲跌數值上色:正紅、負綠(台股慣例)。"""
     try:
@@ -285,7 +294,7 @@ def color_updown(val):
 
 
 # ===================== 標題 + 大盤總覽 =====================
-st.title("📈 台股短線技術分析")
+st.title("📈 台股技術分析")
 
 ov = st.container()
 with ov:
@@ -352,8 +361,7 @@ with tab_scan:
                 tbl = tbl[tbl["_n"] > 0]
             tbl = tbl.drop(columns=["_n"])
             st.success(f"完成,共 {len(rows)} 檔,符合 {len(tbl)} 檔。")
-            styled = tbl.style.map(color_updown, subset=["漲跌%"])
-            st.dataframe(styled, width="stretch", hide_index=True)
+            st.dataframe(styled_table(tbl, ["漲跌%"]), width="stretch", hide_index=True)
             st.download_button("⬇ 匯出 Excel", to_excel_bytes(tbl),
                                file_name=f"scan_{_dt.date.today()}.xlsx",
                                key="dl_scan")
@@ -429,9 +437,7 @@ with tab_screen:
             st.warning("沒有符合所有條件的股票,試著放寬條件。")
         else:
             st.success(f"篩出 {len(res)} 檔符合條件。")
-            sub = [c for c in ["漲跌%"] if c in res.columns]
-            styled = res.style.map(color_updown, subset=sub) if sub else res
-            st.dataframe(styled, width="stretch", hide_index=True)
+            st.dataframe(styled_table(res, ["漲跌%"]), width="stretch", hide_index=True)
             st.download_button("⬇ 匯出 Excel", to_excel_bytes(res),
                                file_name=f"screen_{_dt.date.today()}.xlsx", key="dl_screen")
             st.session_state["screen_codes"] = list(res["代號"])
@@ -641,11 +647,11 @@ with tab_stock:
                     bkc1, bkc2 = st.columns(2)
                     with bkc1:
                         st.markdown("🟢 **買超前段**")
-                        st.dataframe(bk["買超"][["券商", "買超(張)", "均價"]].head(12),
+                        st.dataframe(styled_table(bk["買超"][["券商", "買超(張)", "均價"]].head(12)),
                                      width="stretch", hide_index=True)
                     with bkc2:
                         st.markdown("🔴 **賣超前段**")
-                        st.dataframe(bk["賣超"][["券商", "買超(張)", "均價"]].head(12),
+                        st.dataframe(styled_table(bk["賣超"][["券商", "買超(張)", "均價"]].head(12)),
                                      width="stretch", hide_index=True)
                     st.caption("分點買賣超常用來推測主力動向,但分點不等於特定人,且含借券/避險等雜訊,請斟酌。")
 
@@ -661,7 +667,7 @@ with tab_stock:
                 slv = sl if use_sl else None
                 tpv = tp if use_tp else None
                 bt = backtest_all(df, hold_days=hold_days, stop_loss=slv, take_profit=tpv)
-                st.dataframe(bt.style.map(color_updown, subset=["平均報酬%", "累積報酬%"]),
+                st.dataframe(styled_table(bt, ["平均報酬%", "累積報酬%"]),
                              width="stretch", hide_index=True)
                 bench = c_fetch("0050", s_period)
                 br = benchmark_return(df, bench)
@@ -677,7 +683,8 @@ with tab_stock:
                                        margin=dict(l=10, r=10, t=30, b=10))
                     st.plotly_chart(efig, width="stretch", config=PLOTLY_CONFIG)
                     with st.expander(f"看 {sel_sig} 的每筆交易明細({r['trades']} 筆)"):
-                        st.dataframe(pd.DataFrame(r["trade_list"]), width="stretch", hide_index=True)
+                        st.dataframe(styled_table(pd.DataFrame(r["trade_list"]), ["報酬%"]),
+                                     width="stretch", hide_index=True)
                 else:
                     st.caption(f"「{sel_sig}」在此期間觸發次數不足,無法畫權益曲線。")
 
@@ -768,7 +775,7 @@ with tab_swing:
             w_sl = wb2.number_input("停損%", value=8.0, step=1.0, key="sw_sl")
             w_tp = wb3.number_input("停利%", value=20.0, step=1.0, key="sw_tp")
             wbt = c_swing_bt(swing_code, w_hold, w_sl, w_tp)
-            st.dataframe(wbt.style.map(color_updown, subset=["平均報酬%", "累積報酬%"]),
+            st.dataframe(styled_table(wbt, ["平均報酬%", "累積報酬%"]),
                          width="stretch", hide_index=True)
             wbench = c_fetch("0050", "5y")
             wdf5 = c_fetch(swing_code, "5y")
@@ -789,9 +796,12 @@ with tab_swing:
             st.warning("沒有符合的個股。")
         else:
             st.success(f"共 {len(sdf)} 檔。")
-            st.dataframe(sdf, width="stretch", hide_index=True)
+            st.dataframe(styled_table(sdf), width="stretch", hide_index=True)
             st.download_button("⬇ 匯出 Excel", to_excel_bytes(sdf),
                                file_name=f"swing_{_dt.date.today()}.xlsx", key="dl_swing")
+            st.session_state["swing_codes"] = list(sdf["代號"])
+    if st.session_state.get("swing_codes"):
+        jump_to_stock(st.session_state["swing_codes"], "swing_jump")
 
 
 # ============================================================
@@ -832,7 +842,7 @@ with tab_cmp:
                                      "營收年增%": rv.get("年增率%") if rv else None})
                 if rows:
                     cdf = pd.DataFrame(rows)
-                    st.dataframe(cdf.style.map(color_updown, subset=["漲跌%"]),
+                    st.dataframe(styled_table(cdf, ["漲跌%"]),
                                  width="stretch", hide_index=True)
                     st.caption("點欄位標題可排序(例如依本益比由低到高找相對便宜的同業)。")
                 else:
@@ -865,7 +875,7 @@ with tab_cmp:
             st.plotly_chart(pkfig, width="stretch", config=PLOTLY_CONFIG)
             if rows:
                 pkdf = pd.DataFrame(rows)
-                st.dataframe(pkdf.style.map(color_updown, subset=[f"{cmp_period}報酬%"]),
+                st.dataframe(styled_table(pkdf, [f"{cmp_period}報酬%"]),
                              width="stretch", hide_index=True)
         else:
             st.info("請至少輸入 2 檔代號。")
