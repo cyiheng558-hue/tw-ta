@@ -27,6 +27,7 @@ from fundamentals import (load_stock_names, name_of, valuation, revenue_yoy,
 from chips import cumulative_net, foreign_holding, margin_short_ratio
 from news import latest_news
 from score import composite
+from broker import broker_branch
 from screener import screen, load_universe, DEFAULT_CONDITIONS
 from risk import suggest as risk_suggest
 from backtest import BACKTESTABLE
@@ -210,6 +211,11 @@ def c_margin_ratio(code):
 @st.cache_data(ttl=900, show_spinner=False)
 def c_news(code):
     return latest_news(code)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def c_broker(code, days):
+    return broker_branch(code, days=days)
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -597,6 +603,27 @@ with tab_stock:
                         st.plotly_chart(fhfig, width="stretch", config=PLOTLY_CONFIG)
                     else:
                         st.caption("(外資持股比率資料抓取中或無資料)")
+
+                # 券商分點進出(HiStock 爬蟲)
+                st.divider()
+                st.markdown("**券商分點進出**(主力券商買賣超)")
+                bk_label = st.radio("區間", ["當日", "近3日", "近5日"], horizontal=True, key="bk_days")
+                bk_days = {"當日": 1, "近3日": 3, "近5日": 5}[bk_label]
+                bk = c_broker(code, bk_days)
+                if not bk:
+                    st.info("抓不到分點資料(HiStock 改版/反爬或當日無資料)。分點為第三方爬蟲,僅供參考。")
+                else:
+                    st.caption(f"資料區間:{bk['區間']}(來源 HiStock,非官方、僅供參考)")
+                    bkc1, bkc2 = st.columns(2)
+                    with bkc1:
+                        st.markdown("🟢 **買超前段**")
+                        st.dataframe(bk["買超"][["券商", "買超(張)", "均價"]].head(12),
+                                     width="stretch", hide_index=True)
+                    with bkc2:
+                        st.markdown("🔴 **賣超前段**")
+                        st.dataframe(bk["賣超"][["券商", "買超(張)", "均價"]].head(12),
+                                     width="stretch", hide_index=True)
+                    st.caption("分點買賣超常用來推測主力動向,但分點不等於特定人,且含借券/避險等雜訊,請斟酌。")
 
             # ---------- 回測 · 部位 ----------
             with sub_bt:

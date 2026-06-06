@@ -121,7 +121,11 @@ python chips.py 2330           # 三大法人、外資持股比率、券資比
 python fundamentals.py 2330    # 本益比/殖利率/EPS/毛利率/ROE/連續配息/本益比評價
 python news.py 2330            # 個股最新新聞(標題/來源/連結)
 python score.py 2330           # 技術+基本+籌碼 綜合評分
+python broker.py 2330 5        # 券商分點買賣超(近5日;第2參數為交易日數)
 ```
+
+> 券商分點(`broker.py`)資料來自 HiStock 網頁爬蟲,**非官方 API**,
+> 網站改版或反爬時可能失效;分點不等於特定人、含借券/避險雜訊,僅供參考。
 
 ### 部位計算 + ATR 停損
 ```powershell
@@ -202,6 +206,7 @@ FinMind 免費版有流量上限(匿名最嚴,且跟同 IP 的人共用)。兩�
 | `fundamentals.py` | 股名/估值/EPS/毛利率/ROE/配息/本益比評價 |
 | `news.py` | 個股新聞 |
 | `score.py` | 技術+基本+籌碼 綜合評分 |
+| `broker.py` | 券商分點進出(HiStock 爬蟲,當日/3日/5日) |
 | `finmind.py` | FinMind 共用抓取層 + 本地快取(降低流量) |
 | `risk.py` | 部位計算 + ATR 停損 |
 | `daily_scan.py` | 每日自動掃描 + 報告 |
