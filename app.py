@@ -22,7 +22,11 @@ from signals import scan_one
 from backtest import backtest_signal, backtest_all, benchmark_return
 from chips import fetch_institutional, chip_summary
 from fundamentals import (load_stock_names, name_of, valuation, revenue_yoy,
-                          margin_summary, margin_short)
+                          margin_short, financials,
+                          dividend_history, revenue_trend, pe_valuation)
+from chips import cumulative_net, foreign_holding, margin_short_ratio
+from news import latest_news
+from score import composite
 from screener import screen, load_universe, DEFAULT_CONDITIONS
 from risk import suggest as risk_suggest
 from backtest import BACKTESTABLE
@@ -127,6 +131,51 @@ def c_scan_swing(codes, only_bull):
 @st.cache_data(ttl=1800, show_spinner=False)
 def c_swing_bt(code, hold, sl, tp):
     return backtest_swing(fetch(code, period="5y"), hold_days=hold, stop_loss=sl, take_profit=tp)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def c_financials(code):
+    return financials(code)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def c_dividend(code):
+    return dividend_history(code)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def c_rev_trend(code):
+    return revenue_trend(code)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def c_pe_val(code):
+    return pe_valuation(code)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def c_cum_net(code, days):
+    return cumulative_net(code, days)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def c_foreign_hold(code, days):
+    return foreign_holding(code, days)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def c_margin_ratio(code):
+    return margin_short_ratio(code)
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def c_news(code):
+    return latest_news(code)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def c_score(code, swing_trend):
+    return composite(code, e=enrich(fetch(code, period="1y")), swing_trend=swing_trend)
 
 
 # ===================== 觀察清單存取 =====================
@@ -360,6 +409,34 @@ with tab_stock:
             if bear:
                 st.warning("警示:" + " / ".join(bear))
 
+            # 綜合評分 + 雷達圖
+            sw = c_swing(code, "2y")
+            sw_trend = sw.get("趨勢") if isinstance(sw, dict) and "error" not in sw else None
+            sc = c_score(code, sw_trend)
+            if "error" not in sc:
+                st.subheader(f"綜合評分:{sc['總分']:.0f} 分({sc['評等']})")
+                sca, scb = st.columns([1, 1])
+                with sca:
+                    radar = go.Figure()
+                    cats = ["技術面", "基本面", "籌碼面"]
+                    vals = [sc["技術面"], sc["基本面"], sc["籌碼面"]]
+                    radar.add_trace(go.Scatterpolar(r=vals + [vals[0]], theta=cats + [cats[0]],
+                                    fill="toself", line=dict(color="#d62728"), name="分數"))
+                    radar.update_layout(height=300, margin=dict(l=30, r=30, t=20, b=20),
+                                        polar=dict(radialaxis=dict(range=[0, 100], visible=True)),
+                                        showlegend=False)
+                    st.plotly_chart(radar, width="stretch", config=PLOTLY_CONFIG)
+                with scb:
+                    sm = st.columns(3)
+                    sm[0].metric("技術面", sc["技術面"])
+                    sm[1].metric("基本面", sc["基本面"])
+                    sm[2].metric("籌碼面", sc["籌碼面"])
+                    with st.expander("評分依據(各項加減分)"):
+                        st.caption("**技術面**:" + "、".join(sc["技術說明"]) if sc["技術說明"] else "技術面:—")
+                        st.caption("**基本面**:" + "、".join(sc["基本說明"]) if sc["基本說明"] else "基本面:—")
+                        st.caption("**籌碼面**:" + "、".join(sc["籌碼說明"]) if sc["籌碼說明"] else "籌碼面:—")
+                st.caption("評分是把多項指標濃縮成方便比較的數字,非買賣建議。")
+
             # 主圖
             fig = make_subplots(rows=4, cols=1, shared_xaxes=True,
                                 row_heights=[0.5, 0.17, 0.17, 0.16], vertical_spacing=0.03,
@@ -386,15 +463,52 @@ with tab_stock:
                               legend=dict(orientation="h", y=1.04))
             st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG)
 
-            # 基本面摘要
+            # 基本面(深化)
+            st.subheader("基本面")
             rev = c_revenue(code)
-            if val or rev:
-                f = st.columns(4)
-                f[0].metric("本益比", val.get("PER", "—") if val else "—")
-                f[1].metric("殖利率", f"{val.get('殖利率%','—')}%" if val else "—")
-                f[2].metric("股價淨值比", val.get("PBR", "—") if val else "—")
-                f[3].metric(f"月營收年增({rev.get('營收月份','')})" if rev else "月營收年增",
-                            f"{rev.get('年增率%','—')}%" if rev else "—")
+            fin = c_financials(code)
+            pev = c_pe_val(code)
+            div = c_dividend(code)
+            # 第一排:估值
+            f = st.columns(4)
+            f[0].metric("本益比", val.get("PER", "—") if val else "—")
+            f[1].metric("殖利率", f"{val.get('殖利率%','—')}%" if val else "—")
+            f[2].metric("股價淨值比", val.get("PBR", "—") if val else "—")
+            if pev:
+                f[3].metric("本益比評價", pev["評價"].split("(")[0],
+                            f"近3年第{pev['近3年百分位']:.0f}百分位")
+            # 第二排:獲利能力
+            if fin:
+                g = st.columns(5)
+                g[0].metric("毛利率", f"{fin.get('毛利率%','—')}%")
+                g[1].metric("營益率", f"{fin.get('營益率%','—')}%")
+                g[2].metric("淨利率", f"{fin.get('淨利率%','—')}%")
+                g[3].metric("近四季EPS", fin.get("近四季EPS", "—"))
+                g[4].metric("ROE(近四季)", f"{fin.get('ROE_TTM%','—')}%")
+                st.caption(f"財報季別:{fin.get('季別','—')}")
+            # 第三排:營收趨勢圖 + 配息
+            rt = c_rev_trend(code)
+            rc1, rc2 = st.columns([2, 1])
+            with rc1:
+                if not rt.empty:
+                    rfig = make_subplots(specs=[[{"secondary_y": True}]])
+                    rfig.add_trace(go.Bar(x=rt.index, y=rt["營收億"], name="月營收(億)",
+                                   marker_color="#9ecae1"), secondary_y=False)
+                    rfig.add_trace(go.Scatter(x=rt.index, y=rt["年增率%"], name="年增率%",
+                                   line=dict(color="#d62728", width=2)), secondary_y=True)
+                    rfig.update_layout(height=260, title="月營收趨勢(近13個月)",
+                                       margin=dict(l=10, r=10, t=30, b=10),
+                                       legend=dict(orientation="h", y=1.2))
+                    rfig.update_yaxes(title_text="營收(億)", secondary_y=False)
+                    rfig.update_yaxes(title_text="年增率%", secondary_y=True)
+                    st.plotly_chart(rfig, width="stretch", config=PLOTLY_CONFIG)
+            with rc2:
+                if div:
+                    st.metric("連續配息", f"{div['連續配息年數']} 年")
+                    st.metric("最近年度現金股利", f"{div['最近年度現金股利']} 元")
+                    if div.get("近年現金股利"):
+                        hist = " / ".join(f"{y}:{c}" for y, c in div["近年現金股利"].items())
+                        st.caption("近年現金股利:" + hist)
 
             # 籌碼:三大法人 + 融資券
             st.subheader("籌碼面")
@@ -417,9 +531,33 @@ with tab_stock:
                     st.metric("外資 近5日(張)", f"{cs['外資']:+,.0f}")
                     st.metric("法人合計 近5日(張)", f"{cs['合計']:+,.0f}")
                     st.metric("合計連續買超", f"{cs['連續買超天數']} 天")
-                ms = margin_summary(code)
-                if ms:
-                    st.metric("融資餘額(張)", f"{ms['融資餘額']:,.0f}", f"{ms['融資5日增減']:+,.0f}")
+                msr = c_margin_ratio(code)
+                if msr:
+                    st.metric("融資餘額(張)", f"{msr['融資餘額']:,.0f}")
+                    st.metric("券資比", f"{msr['券資比%']}%")
+
+            # 累計法人買賣超 + 外資持股比率
+            dc1, dc2 = st.columns(2)
+            with dc1:
+                cum = c_cum_net(code, 60)
+                if not cum.empty:
+                    cumfig = go.Figure()
+                    cumfig.add_trace(go.Scatter(x=cum.index, y=cum["累計"], fill="tozeroy",
+                                     line=dict(color="#1f77b4"), name="累計買賣超"))
+                    cumfig.update_layout(height=240, title="近60日累計法人買賣超(張)",
+                                         margin=dict(l=10, r=10, t=30, b=10))
+                    st.plotly_chart(cumfig, width="stretch", config=PLOTLY_CONFIG)
+            with dc2:
+                fh = c_foreign_hold(code, 60)
+                if not fh.empty:
+                    fhfig = go.Figure()
+                    fhfig.add_trace(go.Scatter(x=fh.index, y=fh["外資持股比率"],
+                                    line=dict(color="#d62728"), name="外資持股比率"))
+                    fhfig.update_layout(height=240, title="外資持股比率(%)",
+                                        margin=dict(l=10, r=10, t=30, b=10))
+                    st.plotly_chart(fhfig, width="stretch", config=PLOTLY_CONFIG)
+                else:
+                    st.caption("(外資持股比率資料抓取中或無資料)")
 
             # 回測升級
             st.subheader(f"訊號回測(持有{hold_days}日,含停損停利+手續費)")
@@ -472,6 +610,19 @@ with tab_stock:
                 pcc[3].metric("最大虧損", f"{rs['實際最大虧損']:,.0f}", f"{rs['實際風險%']}%")
                 if rs["可買張數"] == 0:
                     st.caption("以整張計算下買不起 1 張(股價×1000 > 本金或風險上限),可考慮零股。")
+
+            # 新聞面
+            st.subheader("📰 最新新聞")
+            news_df = c_news(code)
+            if news_df.empty:
+                st.info("近期無新聞,或 FinMind 流量上限,稍後再試。")
+            else:
+                for _, nrow in news_df.iterrows():
+                    st.markdown(
+                        f"- `{nrow['日期']}` **[{nrow['來源']}]** "
+                        f"[{nrow['標題']}]({nrow['連結']})"
+                    )
+                st.caption("新聞來源 FinMind,內容僅供參考、非投資建議,請自行查證。")
 
 
 # ============================================================

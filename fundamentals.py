@@ -145,6 +145,125 @@ def margin_summary(code: str) -> dict:
     }
 
 
+# ---------------- 財報:EPS / 毛利率 / 營益率 / 淨利率 / ROE ----------------
+def financials(code: str) -> dict:
+    """最新一季獲利能力 + 近四季(TTM)EPS/ROE。抓不到回傳空 dict。"""
+    start = (_dt.date.today() - _dt.timedelta(days=620)).isoformat()  # 約 5 季
+    data = _get("TaiwanStockFinancialStatements", code, start)
+    if not data:
+        return {}
+    df = pd.DataFrame(data)
+    # 樞紐:每季一列,科目為欄
+    piv = df.pivot_table(index="date", columns="type", values="value", aggfunc="first").sort_index()
+    if piv.empty:
+        return {}
+    last = piv.iloc[-1]
+
+    def pct(numer, denom):
+        rev = last.get(denom)
+        v = last.get(numer)
+        if rev and pd.notna(rev) and pd.notna(v) and rev != 0:
+            return round(float(v) / float(rev) * 100, 1)
+        return None
+
+    out = {
+        "季別": str(piv.index[-1]),
+        "毛利率%": pct("GrossProfit", "Revenue"),
+        "營益率%": pct("OperatingIncome", "Revenue"),
+        "淨利率%": pct("IncomeAfterTaxes", "Revenue"),
+        "單季EPS": round(float(last["EPS"]), 2) if "EPS" in last and pd.notna(last.get("EPS")) else None,
+    }
+    # 近四季 EPS 合計(TTM)
+    if "EPS" in piv.columns:
+        eps_ttm = piv["EPS"].dropna().tail(4).sum()
+        out["近四季EPS"] = round(float(eps_ttm), 2)
+    # ROE(TTM):近四季稅後淨利 / 最新股東權益
+    bs = _get("TaiwanStockBalanceSheet", code, start)
+    if bs and "IncomeAfterTaxes" in piv.columns:
+        bdf = pd.DataFrame(bs)
+        eq = bdf[bdf["type"] == "Equity"].sort_values("date")
+        ni_ttm = piv["IncomeAfterTaxes"].dropna().tail(4).sum()
+        if not eq.empty:
+            equity = float(eq.iloc[-1]["value"])
+            if equity:
+                out["ROE_TTM%"] = round(float(ni_ttm) / equity * 100, 1)
+    return out
+
+
+# ---------------- 配息歷史 ----------------
+def dividend_history(code: str) -> dict:
+    """近年現金股利與連續配息年數。"""
+    data = _get("TaiwanStockDividend", code, start="2014-01-01")
+    if not data:
+        return {}
+    df = pd.DataFrame(data)
+    # 以股利所屬年度彙總現金股利(同年可能分次)
+    df["cash"] = pd.to_numeric(df.get("CashEarningsDistribution", 0), errors="coerce").fillna(0) \
+        + pd.to_numeric(df.get("CashStatutorySurplus", 0), errors="coerce").fillna(0)
+    # year 形如 "114年第4季" 或 "2025" ,取前面數字當年度群組
+    df["yr"] = df["year"].astype(str).str.extract(r"(\d+)").astype(float)
+    by_year = df.groupby("yr")["cash"].sum().sort_index()
+    by_year = by_year[by_year > 0]
+    if by_year.empty:
+        return {}
+    # 連續配息年數:從最近年度往回數連續 > 0
+    streak = 0
+    for v in by_year.iloc[::-1]:
+        if v > 0:
+            streak += 1
+        else:
+            break
+    recent = {str(int(y)): round(float(c), 2) for y, c in by_year.tail(6).items()}
+    return {"連續配息年數": streak, "近年現金股利": recent,
+            "最近年度現金股利": round(float(by_year.iloc[-1]), 2)}
+
+
+# ---------------- 月營收趨勢(近12月) ----------------
+def revenue_trend(code: str) -> pd.DataFrame:
+    """近 ~13 個月營收 + 年增率,回傳 DataFrame(月份索引)。"""
+    start = (_dt.date.today() - _dt.timedelta(days=800)).isoformat()
+    data = _get("TaiwanStockMonthRevenue", code, start)
+    if not data:
+        return pd.DataFrame()
+    df = pd.DataFrame(data).sort_values(["revenue_year", "revenue_month"])
+    df["月份"] = df["revenue_year"].astype(str) + "/" + df["revenue_month"].astype(int).map(lambda m: f"{m:02d}")
+    df["營收億"] = df["revenue"] / 1e8
+    df["年增率%"] = df.groupby("revenue_month")["revenue"].pct_change() * 100  # 同月年比
+    out = df[["月份", "營收億", "年增率%"]].tail(13).copy()
+    out["營收億"] = out["營收億"].round(1)
+    out["年增率%"] = out["年增率%"].round(1)
+    return out.set_index("月份")
+
+
+# ---------------- 本益比評價(歷史 percentile) ----------------
+def pe_valuation(code: str) -> dict:
+    """用近 ~3 年本益比算現在落在哪個區間(percentile),判斷相對貴/便宜。"""
+    start = (_dt.date.today() - _dt.timedelta(days=1100)).isoformat()
+    data = _get("TaiwanStockPER", code, start)
+    if not data:
+        return {}
+    df = pd.DataFrame(data)
+    per = pd.to_numeric(df["PER"], errors="coerce").dropna()
+    per = per[per > 0]
+    if len(per) < 30:
+        return {}
+    cur = float(per.iloc[-1])
+    pct_rank = float((per < cur).mean() * 100)
+    if pct_rank >= 80:
+        label = "偏貴(近3年高檔)"
+    elif pct_rank >= 60:
+        label = "略高"
+    elif pct_rank <= 20:
+        label = "偏便宜(近3年低檔)"
+    elif pct_rank <= 40:
+        label = "略低"
+    else:
+        label = "合理區間"
+    return {"目前本益比": round(cur, 1), "近3年百分位": round(pct_rank, 0),
+            "評價": label, "近3年最低": round(float(per.min()), 1),
+            "近3年最高": round(float(per.max()), 1)}
+
+
 if __name__ == "__main__":
     import sys
     try:
@@ -156,3 +275,6 @@ if __name__ == "__main__":
     print("  估值:", valuation(code))
     print("  營收:", revenue_yoy(code))
     print("  融資券:", margin_summary(code))
+    print("  財報:", financials(code))
+    print("  配息:", dividend_history(code))
+    print("  本益比評價:", pe_valuation(code))

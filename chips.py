@@ -92,6 +92,56 @@ def chip_summary(code: str, days: int = 5) -> dict:
     }
 
 
+def cumulative_net(code: str, days: int = 60) -> pd.DataFrame:
+    """三大法人合計的累計買賣超(張),看波段籌碼方向(持續流入/流出)。"""
+    df = fetch_institutional(code, days=days)
+    if df.empty:
+        return pd.DataFrame()
+    out = pd.DataFrame({"單日合計": df["合計"], "累計": df["合計"].cumsum()})
+    return out
+
+
+def foreign_holding(code: str, days: int = 60) -> pd.DataFrame:
+    """外資持股比率(%)趨勢。"""
+    start = (_dt.date.today() - _dt.timedelta(days=days * 2)).isoformat()
+    params = {"dataset": "TaiwanStockShareholding",
+              "data_id": _code_only(code), "start_date": start}
+    token = os.environ.get("FINMIND_TOKEN")
+    if token:
+        params["token"] = token
+    try:
+        j = requests.get(API, params=params, timeout=20).json()
+    except Exception:
+        return pd.DataFrame()
+    if j.get("msg") != "success" or not j.get("data"):
+        return pd.DataFrame()
+    df = pd.DataFrame(j["data"])
+    out = pd.DataFrame({"外資持股比率": pd.to_numeric(df["ForeignInvestmentSharesRatio"], errors="coerce")})
+    out.index = pd.to_datetime(df["date"])
+    return out.sort_index().dropna().tail(days)
+
+
+def margin_short_ratio(code: str) -> dict:
+    """券資比(%)= 融券餘額 / 融資餘額 * 100。比率高代表空方相對積極。"""
+    start = (_dt.date.today() - _dt.timedelta(days=20)).isoformat()
+    params = {"dataset": "TaiwanStockMarginPurchaseShortSale",
+              "data_id": _code_only(code), "start_date": start}
+    token = os.environ.get("FINMIND_TOKEN")
+    if token:
+        params["token"] = token
+    try:
+        j = requests.get(API, params=params, timeout=20).json()
+    except Exception:
+        return {}
+    if j.get("msg") != "success" or not j.get("data"):
+        return {}
+    last = pd.DataFrame(j["data"]).iloc[-1]
+    margin = float(last["MarginPurchaseTodayBalance"])
+    short = float(last["ShortSaleTodayBalance"])
+    ratio = (short / margin * 100) if margin else 0.0
+    return {"融資餘額": margin, "融券餘額": short, "券資比%": round(ratio, 1)}
+
+
 if __name__ == "__main__":
     import sys
     try:
@@ -106,3 +156,8 @@ if __name__ == "__main__":
     else:
         print(df.to_string())
         print("\n近 5 日摘要:", chip_summary(code, days=5))
+        fh = foreign_holding(code, days=10)
+        if not fh.empty:
+            print("\n外資持股比率(近5日):")
+            print(fh.tail(5).to_string())
+        print("\n券資比:", margin_short_ratio(code))
