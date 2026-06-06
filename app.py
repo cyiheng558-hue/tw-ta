@@ -45,6 +45,45 @@ try:
 except Exception:
     pass
 
+
+# ===================== 進站驗證碼 =====================
+# 密碼預設 1524,可用 Secrets / 環境變數 APP_PASSWORD 覆蓋(改密碼不必動程式碼)。
+def _app_password():
+    try:
+        if "APP_PASSWORD" in st.secrets:
+            return str(st.secrets["APP_PASSWORD"])
+    except Exception:
+        pass
+    return os.environ.get("APP_PASSWORD", "") or "1524"
+
+
+APP_PASSWORD = _app_password()
+
+
+def require_password():
+    """未通過驗證前,只顯示輸入框並停住,不執行後面的內容。"""
+    if st.session_state.get("auth_ok"):
+        return
+
+    def _check():
+        if st.session_state.get("pwd_input", "") == APP_PASSWORD:
+            st.session_state["auth_ok"] = True
+            st.session_state["pwd_bad"] = False
+        else:
+            st.session_state["auth_ok"] = False
+            st.session_state["pwd_bad"] = True
+        st.session_state["pwd_input"] = ""  # 不保留輸入內容
+
+    st.title("📈 台股技術分析")
+    st.caption("本站需要驗證碼才能使用,請向提供者索取。")
+    st.text_input("請輸入驗證碼", type="password", key="pwd_input", on_change=_check)
+    if st.session_state.get("pwd_bad"):
+        st.error("驗證碼錯誤,請再試一次。")
+    st.stop()
+
+
+require_password()
+
 # Plotly 工具列(右上角按鈕)繁體中文化:內嵌 zh-TW 語系字典
 PLOTLY_CONFIG = {
     "locale": "zh-TW",
