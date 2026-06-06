@@ -22,7 +22,7 @@ from signals import scan_one
 from backtest import backtest_signal, backtest_all, benchmark_return
 from chips import fetch_institutional, chip_summary
 from fundamentals import (load_stock_names, name_of, valuation, revenue_yoy,
-                          margin_short, financials,
+                          margin_short, financials, load_industry,
                           dividend_history, revenue_trend, pe_valuation)
 from chips import cumulative_net, foreign_holding, margin_short_ratio
 from news import latest_news
@@ -131,6 +131,11 @@ def c_fetch_many(codes, period):
 @st.cache_data(ttl=86400, show_spinner=False)
 def c_names():
     return load_stock_names()
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def c_industry():
+    return load_industry()
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -257,6 +262,15 @@ def cn_ohlc_hover(e):
     ]
 
 
+def jump_to_stock(codes, key):
+    """結果表下方:選一檔帶入『個股分析』分頁(設定 st_code)。"""
+    opts = ["—"] + [str(c) for c in codes]
+    pick = st.selectbox("📊 選一檔帶入「個股分析」分頁查看", opts, key=key)
+    if pick and pick != "—":
+        st.session_state["st_code"] = pick
+        st.success(f"已帶入 **{pick}**,點上方『📊 個股分析』分頁即可看到。")
+
+
 def color_updown(val):
     """漲跌數值上色:正紅、負綠(台股慣例)。"""
     try:
@@ -291,8 +305,8 @@ with ov:
 st.caption("資料:yfinance(延遲約15分鐘日線)+ FinMind(籌碼/基本面)。"
            "以下皆為客觀計算,**非投資建議**,請自行評估風險。")
 
-tab_scan, tab_screen, tab_stock, tab_swing, tab_watch = st.tabs(
-    ["🔍 清單掃描", "🎯 條件篩選", "📊 個股分析(短線)", "📈 中線分析", "⚙️ 自選股管理"])
+tab_scan, tab_screen, tab_stock, tab_swing, tab_cmp, tab_watch = st.tabs(
+    ["🔍 清單掃描", "🎯 條件篩選", "📊 個股分析(短線)", "📈 中線分析", "🆚 比較", "⚙️ 自選股管理"])
 
 
 # ============================================================
@@ -343,6 +357,10 @@ with tab_scan:
             st.download_button("⬇ 匯出 Excel", to_excel_bytes(tbl),
                                file_name=f"scan_{_dt.date.today()}.xlsx",
                                key="dl_scan")
+            st.session_state["scan_codes"] = list(tbl["代號"])
+
+    if st.session_state.get("scan_codes"):
+        jump_to_stock(st.session_state["scan_codes"], "scan_jump")
 
 
 # ============================================================
@@ -416,6 +434,10 @@ with tab_screen:
             st.dataframe(styled, width="stretch", hide_index=True)
             st.download_button("⬇ 匯出 Excel", to_excel_bytes(res),
                                file_name=f"screen_{_dt.date.today()}.xlsx", key="dl_screen")
+            st.session_state["screen_codes"] = list(res["代號"])
+
+    if st.session_state.get("screen_codes"):
+        jump_to_stock(st.session_state["screen_codes"], "screen_jump")
 
 
 # ============================================================
@@ -423,7 +445,8 @@ with tab_screen:
 # ============================================================
 with tab_stock:
     c1, c2, c3 = st.columns([1, 1, 1])
-    code = c1.text_input("股票代號", value="2330", key="st_code").strip()
+    st.session_state.setdefault("st_code", "2330")  # 可被掃描/篩選的「看個股」帶入
+    code = c1.text_input("股票代號", key="st_code").strip()
     s_period = c2.selectbox("資料期間", ["3mo", "6mo", "1y", "2y"], index=1, key="st_p")
     hold_days = c3.selectbox("回測持有天數", [3, 5, 10, 20], index=1)
 
@@ -482,12 +505,13 @@ with tab_stock:
                         st.caption("**籌碼面**:" + "、".join(sc["籌碼說明"]) if sc["籌碼說明"] else "籌碼面:—")
                 st.caption("評分是把多項指標濃縮成方便比較的數字,非買賣建議。")
 
-            # === 詳細內容用子分頁分流,避免單頁太長 ===
-            sub_tech, sub_fund, sub_chip, sub_bt, sub_news = st.tabs(
-                ["📈 技術線圖", "💲 基本面", "💰 籌碼面", "🧪 回測·部位", "📰 新聞"])
+            # === 詳細內容用分段選擇器,只渲染選中的那塊(延遲載入、首屏更快、省 API) ===
+            _VIEWS = ["📈 技術線圖", "💲 基本面", "💰 籌碼面", "🧪 回測·部位", "📰 新聞"]
+            view = st.segmented_control("檢視", _VIEWS, default="📈 技術線圖",
+                                        key="stk_view", label_visibility="collapsed") or "📈 技術線圖"
 
             # ---------- 技術線圖 ----------
-            with sub_tech:
+            if view == "📈 技術線圖":
                 fig = make_subplots(rows=4, cols=1, shared_xaxes=True,
                                     row_heights=[0.5, 0.17, 0.17, 0.16], vertical_spacing=0.03,
                                     subplot_titles=("K線/均線/布林", "KD", "MACD", "成交量"))
@@ -514,7 +538,7 @@ with tab_stock:
                 st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG)
 
             # ---------- 基本面 ----------
-            with sub_fund:
+            elif view == "💲 基本面":
                 rev = c_revenue(code)
                 fin = c_financials(code)
                 pev = c_pe_val(code)
@@ -558,7 +582,7 @@ with tab_stock:
                             st.caption("近年現金股利:" + hist)
 
             # ---------- 籌碼面 ----------
-            with sub_chip:
+            elif view == "💰 籌碼面":
                 cc1, cc2 = st.columns([2, 1])
                 chips_df = c_chips(code, 30)
                 with cc1:
@@ -626,7 +650,7 @@ with tab_stock:
                     st.caption("分點買賣超常用來推測主力動向,但分點不等於特定人,且含借券/避險等雜訊,請斟酌。")
 
             # ---------- 回測 · 部位 ----------
-            with sub_bt:
+            elif view == "🧪 回測·部位":
                 st.markdown(f"**訊號回測(持有{hold_days}日,含停損停利+手續費)**")
                 bc1, bc2, bc3 = st.columns(3)
                 use_sl = bc1.checkbox("啟用停損", value=True)
@@ -676,7 +700,7 @@ with tab_stock:
                         st.caption("以整張計算下買不起 1 張(股價×1000 > 本金或風險上限),可考慮零股。")
 
             # ---------- 新聞 ----------
-            with sub_news:
+            elif view == "📰 新聞":
                 news_df = c_news(code)
                 if news_df.empty:
                     st.info("近期無新聞,或 FinMind 流量上限,稍後再試。")
@@ -768,6 +792,83 @@ with tab_swing:
             st.dataframe(sdf, width="stretch", hide_index=True)
             st.download_button("⬇ 匯出 Excel", to_excel_bytes(sdf),
                                file_name=f"swing_{_dt.date.today()}.xlsx", key="dl_swing")
+
+
+# ============================================================
+# 分頁:比較(同業比較 + 多股 PK)
+# ============================================================
+with tab_cmp:
+    names = c_names()
+    ind_map = c_industry()
+    cmp_mode = st.radio("模式", ["同業比較", "多股 PK"], horizontal=True, key="cmp_mode")
+
+    if cmp_mode == "同業比較":
+        base = st.text_input("以哪一檔為基準找同業", value=st.session_state.get("st_code", "2330"),
+                             key="cmp_base").strip()
+        if base:
+            industry = ind_map.get(base, "")
+            if not industry:
+                st.info("查不到該股的產業分類。")
+            else:
+                st.caption(f"{base} {name_of(base, names)} 產業:**{industry}**(同業取自股池 universe.txt 中相同產業者)")
+                peers = [c for c in load_universe() if ind_map.get(c) == industry]
+                if base not in peers:
+                    peers = [base] + peers
+                peers = peers[:16]
+                with st.spinner(f"比較 {len(peers)} 檔同業..."):
+                    rows = []
+                    for c in peers:
+                        d = c_fetch(c, "3mo")
+                        if d.empty or len(d) < 2:
+                            continue
+                        cl = float(d["Close"].iloc[-1])
+                        chg = (cl - float(d["Close"].iloc[-2])) / float(d["Close"].iloc[-2]) * 100
+                        v = c_valuation(c)
+                        rv = c_revenue(c)
+                        rows.append({"代號": c, "名稱": names.get(c, ""), "收盤": round(cl, 1),
+                                     "漲跌%": round(chg, 2),
+                                     "本益比": v.get("PER") if v else None,
+                                     "殖利率%": v.get("殖利率%") if v else None,
+                                     "營收年增%": rv.get("年增率%") if rv else None})
+                if rows:
+                    cdf = pd.DataFrame(rows)
+                    st.dataframe(cdf.style.map(color_updown, subset=["漲跌%"]),
+                                 width="stretch", hide_index=True)
+                    st.caption("點欄位標題可排序(例如依本益比由低到高找相對便宜的同業)。")
+                else:
+                    st.warning("同業資料抓取失敗,稍後再試。")
+    else:
+        codes_in = st.text_input("輸入 2~4 檔代號(空白或逗號分隔)", value="2330 2303 2454", key="cmp_pk")
+        pk = [x.strip() for x in codes_in.replace(",", " ").split() if x.strip()][:4]
+        cmp_period = st.selectbox("期間", ["3mo", "6mo", "1y"], index=1, key="cmp_period")
+        if len(pk) >= 2:
+            pkfig = go.Figure()
+            rows = []
+            for c in pk:
+                d = c_fetch(c, cmp_period)
+                if d.empty:
+                    continue
+                norm = d["Close"] / float(d["Close"].iloc[0]) * 100
+                pkfig.add_trace(go.Scatter(x=d.index, y=norm, name=f"{c} {name_of(c, names)}"))
+                cl = float(d["Close"].iloc[-1])
+                ret = (cl / float(d["Close"].iloc[0]) - 1) * 100
+                v = c_valuation(c)
+                rv = c_revenue(c)
+                rows.append({"代號": c, "名稱": names.get(c, ""), "收盤": round(cl, 1),
+                             f"{cmp_period}報酬%": round(ret, 1),
+                             "本益比": v.get("PER") if v else None,
+                             "殖利率%": v.get("殖利率%") if v else None,
+                             "營收年增%": rv.get("年增率%") if rv else None})
+            pkfig.update_layout(height=360, title="走勢比較(起點正規化=100)",
+                                margin=dict(l=10, r=10, t=30, b=10),
+                                legend=dict(orientation="h", y=1.12))
+            st.plotly_chart(pkfig, width="stretch", config=PLOTLY_CONFIG)
+            if rows:
+                pkdf = pd.DataFrame(rows)
+                st.dataframe(pkdf.style.map(color_updown, subset=[f"{cmp_period}報酬%"]),
+                             width="stretch", hide_index=True)
+        else:
+            st.info("請至少輸入 2 檔代號。")
 
 
 # ============================================================

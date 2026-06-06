@@ -56,6 +56,31 @@ def name_of(code: str, names: dict = None) -> str:
     return names.get(key, key)
 
 
+def load_industry() -> dict:
+    """回傳 {代號: 產業類別},快取每日更新一次。"""
+    today = _dt.date.today().isoformat()
+    cache = os.path.join(CACHE_DIR, f"stock_industry_{today}.json")
+    if os.path.exists(cache):
+        try:
+            with open(cache, encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    data = _get("TaiwanStockInfo", timeout=40)
+    ind = {}
+    for d in data:
+        sid = d.get("stock_id", "")
+        if sid and len(sid) == 4 and sid.isdigit():
+            ind[sid] = d.get("industry_category", "")
+    if ind:
+        try:
+            with open(cache, "w", encoding="utf-8") as f:
+                json.dump(ind, f, ensure_ascii=False)
+        except Exception:
+            pass
+    return ind
+
+
 # ---------------- 本益比 / 殖利率 / PBR ----------------
 def valuation(code: str) -> dict:
     """最新本益比、殖利率(%)、股價淨值比。抓不到回傳空 dict。"""
