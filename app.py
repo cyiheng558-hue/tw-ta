@@ -26,6 +26,7 @@ from charting import (resample_ohlcv, signal_markers, volume_profile,
                       support_resistance, candle_patterns)
 from screener import screen, load_universe, DEFAULT_CONDITIONS
 from risk import suggest as risk_suggest
+from assistant import answer as assistant_answer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WATCHLIST = os.path.join(HERE, "watchlist.txt")
@@ -89,6 +90,29 @@ def require_password():
 require_password()
 
 from ui_common import *
+
+
+# ===================== 左側小幫手 =====================
+with st.sidebar:
+    st.subheader("💬 小幫手")
+    st.caption("問我指標/功能/名詞,例:KD是什麼、怎麼設到價提醒、量比是什麼")
+    if "chat" not in st.session_state:
+        st.session_state["chat"] = [{"role": "assistant",
+                                     "text": "嗨!我是看盤小幫手 👋 想知道哪個指標、功能或名詞?直接問我。"}]
+    _box = st.container(height=320)
+    for _m in st.session_state["chat"]:
+        _box.chat_message(_m["role"]).write(_m["text"])
+    with st.form("chat_form", clear_on_submit=True):
+        _q = st.text_input("問題", label_visibility="collapsed", placeholder="輸入問題後按『問』")
+        _sent = st.form_submit_button("問")
+    if _sent and _q:
+        st.session_state["chat"].append({"role": "user", "text": _q})
+        st.session_state["chat"].append({"role": "assistant", "text": assistant_answer(_q)})
+        st.rerun()
+    if len(st.session_state["chat"]) > 1 and st.button("清空對話", key="chat_clear"):
+        st.session_state["chat"] = st.session_state["chat"][:1]
+        st.rerun()
+    st.caption("教學說明,非投資建議。")
 
 
 # ===================== 標題 + 大盤總覽 =====================
