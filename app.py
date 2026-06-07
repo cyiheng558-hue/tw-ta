@@ -233,9 +233,9 @@ def c_quote_off(code):
     return rt_quote([code])
 
 
-@st.fragment(run_every="15s")
+@st.fragment(run_every="3s")
 def live_quote_panel(code):
-    """即時報價面板:交易時間每 15 秒自動更新(盤後讀快取,不重複打)。"""
+    """即時報價面板:交易時間每 3 秒自動更新(盤後讀快取,不重複打)。"""
     df = rt_quote([code]) if is_market_hours() else c_quote_off(code)
     if df.empty:
         st.caption("📡 即時報價:暫時無法取得(盤後/假日,或來源限流/雲端被擋)。")
@@ -251,7 +251,7 @@ def live_quote_panel(code):
     live = is_market_hours()
     q[5].metric("狀態", "🟢 交易中" if live else "盤後")
     st.caption(f"資料時間 {r.get('日期','')} {r.get('時間','')}｜"
-               f"{'交易時間每15秒自動更新' if live else '非交易時間,顯示最後成交'}｜來源:證交所 MIS")
+               f"{'交易時間每3秒自動更新(MIS約3~5秒延遲)' if live else '非交易時間,顯示最後成交'}｜來源:證交所 MIS")
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
