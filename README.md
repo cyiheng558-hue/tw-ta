@@ -203,7 +203,9 @@ FinMind 免費版有流量上限(匿名最嚴,且跟同 IP 的人共用)。兩�
 ## 檔案結構
 | 檔案 | 用途 |
 |------|------|
-| `app.py` | ⭐ Streamlit 網頁介面(主要入口) |
+| `app.py` | ⭐ Streamlit 網頁介面(主要入口、分頁邏輯) |
+| `ui_common.py` | UI 共用層:快取包裝、輔助函式、常數、即時報價、共用圖表 |
+| `tw_time.py` | 台北時區工具(避免雲端 UTC 差一天) |
 | `data.py` | yfinance 股價抓取 + 批次下載 + 本地快取 |
 | `indicators.py` | 技術指標計算 |
 | `signals.py` | 短線訊號判斷 |

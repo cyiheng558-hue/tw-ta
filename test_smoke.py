@@ -34,7 +34,7 @@ def df():
 def test_all_modules_import():
     import indicators, signals, backtest, swing, risk, score  # noqa
     import data, chips, fundamentals, news, finmind, broker, screener  # noqa
-    import sector, futures, market, realtime, charting  # noqa
+    import sector, futures, market, realtime, charting, tw_time  # noqa
 
 
 def test_indicators(df):
