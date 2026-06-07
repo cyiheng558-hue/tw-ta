@@ -78,6 +78,25 @@ def quote(codes) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def index_quote() -> dict:
+    """即時大盤指數(加權 t00、櫃買 o00)。回傳 {名稱: {成交, 漲跌%}}。"""
+    try:
+        r = requests.get(_BASE, params={"ex_ch": "tse_t00.tw|otc_o00.tw",
+                         "json": "1", "delay": "0"}, headers=_HDR, timeout=10)
+        if r.status_code != 200:
+            return {}
+        j = r.json()
+    except Exception:
+        return {}
+    out = {}
+    for m in j.get("msgArray", []):
+        z, y = _num(m.get("z")), _num(m.get("y"))
+        pct = (z - y) / y * 100 if (z and y) else None
+        nm = "加權指數" if m.get("c") == "t00" else "櫃買指數"
+        out[nm] = {"成交": z, "漲跌%": round(pct, 2) if pct is not None else None}
+    return out
+
+
 def quote_detail(code) -> dict:
     """抓單一個股的即時五檔 + 漲跌停。回傳買賣盤、委買委賣量、距漲跌停等。"""
     cid = _code_only(code)

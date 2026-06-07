@@ -152,7 +152,9 @@ with tab_day:
                "非毫秒級;真當沖逐筆請用券商API(本機)。")
     names = c_names()
     wl = load_watchlist()
-    st.markdown("**📋 即時報價看板**(自選股,依漲跌%排序)")
+    index_strength_bar()   # 大盤即時連動
+    alerts_ui(names)       # 到價/漲跌提醒設定
+    st.markdown("**📋 即時報價看板**(自選股,依漲跌%排序;相對強弱>0=強於大盤)")
     daytrade_board(wl, names)
 
     st.divider()
@@ -168,16 +170,19 @@ with tab_day:
         if mv.empty:
             st.info("即時資料暫時無法取得(盤後/假日或雲端被擋)。")
         else:
+            st.markdown("**市場寬度**(全股池)")
+            market_breadth(mv)   # 用未篩選的全體算寬度
+            flt = mv.copy()
             if m_up:
-                mv = mv[mv["漲跌%"] >= max(m_pct, 0.01)]
+                flt = flt[flt["漲跌%"] >= max(m_pct, 0.01)]
             elif m_pct:
-                mv = mv[mv["漲跌%"] >= m_pct]
+                flt = flt[flt["漲跌%"] >= m_pct]
             if m_ratio:
-                mv = mv[mv["量比"].fillna(0) >= m_ratio]
-            mv = mv.sort_values(m_sort, ascending=False)
-            st.success(f"符合 {len(mv)} 檔。")
-            st.dataframe(styled_table(mv, ["漲跌%"]), width="stretch", hide_index=True,
-                         height=min(38 * len(mv) + 40, 600))
+                flt = flt[flt["量比"].fillna(0) >= m_ratio]
+            flt = flt.sort_values(m_sort, ascending=False)
+            st.success(f"符合篩選 {len(flt)} 檔。")
+            st.dataframe(styled_table(flt, ["漲跌%"]), width="stretch", hide_index=True,
+                         height=min(38 * len(flt) + 40, 600))
             st.caption("量比=今日累積量÷近20日均量(>1=量已放大);📈創高/🔴漲停近=盤中異動。"
                        "選一檔到下方輸入框看分鐘K與五檔。")
 

@@ -9,6 +9,7 @@ import io
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
@@ -25,7 +26,7 @@ from broker import broker_branch
 from sector import sector_strength
 from futures import futures_net_oi, summary as fut_summary
 from market import index_status, inst_total
-from realtime import quote as rt_quote, quote_detail, is_market_hours
+from realtime import quote as rt_quote, quote_detail, index_quote, is_market_hours
 from swing import analyze as swing_analyze, scan_swing, backtest_swing
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -42,6 +43,7 @@ __all__ = [
     "cn_ohlc_hover", "jump_to_stock", "styled_table", "color_updown",
     "live_quote_panel", "hbar_sector", "daytrade_board", "intraday_chart",
     "orderbook_panel", "daytrade_pnl", "intraday_movers",
+    "index_strength_bar", "alerts_ui", "market_breadth",
 ]
 
 # 三大法人配色(集中常數,避免各處重複硬寫)
@@ -380,14 +382,23 @@ def _board_render(codes, names):
         return " ".join(f)
 
     df["異動"] = df.apply(_flag, axis=1)
+    # 相對強弱 = 個股漲跌% − 大盤漲跌%(>0 強於大盤)
+    mkt = index_quote().get("加權指數", {}).get("漲跌%")
+    cols = ["代號", "名稱", "成交", "漲跌%"]
+    if mkt is not None:
+        df["相對強弱"] = df["漲跌%"].apply(lambda p: round(p - mkt, 2) if p is not None else None)
+        cols.append("相對強弱")
+    cols += ["異動", "累積量(張)", "開", "高", "低"]
     df = df.sort_values("漲跌%", ascending=False)
-    cols = ["代號", "名稱", "成交", "漲跌%", "異動", "累積量(張)", "開", "高", "低"]
-    st.dataframe(styled_table(df[cols], ["漲跌%"]),
+    _check_alerts(df)  # 到價/漲跌提醒
+    color_cols = ["漲跌%"] + (["相對強弱"] if mkt is not None else [])
+    st.dataframe(styled_table(df[cols], color_cols),
                  width="stretch", hide_index=True, height=min(38 * len(df) + 40, 720))
     t = df.iloc[0].get("時間", "")
     live = is_market_hours()
-    st.caption(f"資料時間 {t}｜{'交易中,每5秒自動更新' if live else '盤後/最後成交'}｜"
-               f"依漲跌%排序｜來源:證交所 MIS")
+    mtxt = f"｜大盤 {mkt:+.2f}%" if mkt is not None else ""
+    st.caption(f"資料時間 {t}{mtxt}｜{'交易中,每5秒自動更新' if live else '盤後/最後成交'}｜"
+               f"相對強弱>0=強於大盤｜來源:證交所 MIS")
 
 
 @st.fragment(run_every="5s")
@@ -501,6 +512,120 @@ def intraday_movers(codes, names):
     q["量比"] = q.apply(_ratio, axis=1)
     q["異動"] = q.apply(_flag, axis=1)
     return q[["代號", "名稱", "成交", "漲跌%", "量比", "異動", "累積量(張)", "高", "低"]]
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _index_intraday():
+    return fetch_intraday("^TWII", "5m")
+
+
+def index_strength_bar():
+    """大盤即時連動:加權/櫃買即時 + 加權分時走勢迷你圖。"""
+    idx = index_quote()
+    c = st.columns([1, 1, 2.4])
+    tw = idx.get("加權指數", {})
+    otc = idx.get("櫃買指數", {})
+    c[0].metric("加權指數", f"{tw.get('成交','—'):,.0f}" if tw.get("成交") else "—",
+                f"{tw.get('漲跌%'):+.2f}%" if tw.get("漲跌%") is not None else None)
+    c[1].metric("櫃買指數", f"{otc.get('成交','—'):,.1f}" if otc.get("成交") else "—",
+                f"{otc.get('漲跌%'):+.2f}%" if otc.get("漲跌%") is not None else None)
+    with c[2]:
+        d = _index_intraday()
+        if not d.empty:
+            up = float(d["Close"].iloc[-1]) >= float(d["Open"].iloc[0])
+            fig = go.Figure(go.Scatter(x=d.index, y=d["Close"], mode="lines",
+                            line=dict(color="#d62728" if up else "#2ca02c", width=1.5),
+                            fill="tozeroy", fillcolor="rgba(214,39,40,0.06)" if up else "rgba(44,160,44,0.06)"))
+            fig.add_hline(y=float(d["Open"].iloc[0]), line_dash="dot", line_color="gray")
+            fig.update_layout(height=90, margin=dict(l=0, r=0, t=0, b=0),
+                              showlegend=False, yaxis=dict(showticklabels=False),
+                              xaxis=dict(showticklabels=False))
+            fig.update_yaxes(range=[float(d["Close"].min()) * 0.999, float(d["Close"].max()) * 1.001])
+            st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+
+
+def _beep():
+    components.html(
+        "<script>try{var c=new(window.AudioContext||window.webkitAudioContext)();"
+        "var o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(c.destination);"
+        "o.frequency.value=880;o.type='square';o.start();g.gain.setValueAtTime(0.25,c.currentTime);"
+        "g.gain.exponentialRampToValueAtTime(0.001,c.currentTime+0.5);o.stop(c.currentTime+0.5);}"
+        "catch(e){}</script>", height=0)
+
+
+def _check_alerts(df):
+    """檢查到價/漲跌提醒,觸發時跳紅字 + toast + 響聲(同一條件只響一次)。"""
+    alerts = st.session_state.get("dt_alerts", [])
+    if not alerts:
+        return
+    fired = st.session_state.setdefault("dt_alert_fired", set())
+    hits = []
+    for a in alerts:
+        row = df[df["代號"] == a["code"]]
+        if row.empty:
+            continue
+        r = row.iloc[0]
+        p, px = r["漲跌%"], r["成交"]
+        key = (a["code"], a["kind"], a["value"])
+        ok = ((a["kind"] == "漲跌%≥" and p is not None and p >= a["value"]) or
+              (a["kind"] == "漲跌%≤" and p is not None and p <= a["value"]) or
+              (a["kind"] == "價≥" and px is not None and px >= a["value"]) or
+              (a["kind"] == "價≤" and px is not None and px <= a["value"]))
+        if ok and key not in fired:
+            hits.append(f"{a['code']} {r['名稱']} {a['kind']}{a['value']}(現 {px} / {p:+.2f}%)")
+            fired.add(key)
+        elif not ok:
+            fired.discard(key)
+    if hits:
+        for h in hits:
+            st.toast("🔔 " + h)
+        st.error("🔔 觸發提醒:" + "；".join(hits))
+        _beep()
+
+
+def alerts_ui(names):
+    """到價/漲跌提醒設定。"""
+    with st.expander("🔔 到價 / 漲跌提醒(觸發跳紅字 + 響聲)"):
+        a = st.columns([1, 1, 1, 0.7])
+        code = a[0].text_input("代號", key="al_code").strip()
+        kind = a[1].selectbox("條件", ["漲跌%≥", "漲跌%≤", "價≥", "價≤"], key="al_kind")
+        val = a[2].number_input("值", value=0.0, step=0.5, key="al_val")
+        a[3].write("")
+        if a[3].button("加入") and code:
+            st.session_state.setdefault("dt_alerts", []).append(
+                {"code": code, "kind": kind, "value": val})
+        alerts = st.session_state.get("dt_alerts", [])
+        if alerts:
+            for i, al in enumerate(list(alerts)):
+                cc = st.columns([5, 1])
+                cc[0].write(f"・{al['code']} {names.get(al['code'], '')} **{al['kind']} {al['value']}**")
+                if cc[1].button("刪除", key=f"al_del{i}"):
+                    alerts.pop(i)
+                    st.rerun()
+        else:
+            st.caption("尚無提醒。例:設『2330 漲跌%≥ 3』,盤中漲超過3%就提醒你。")
+
+
+def market_breadth(df):
+    """市場寬度:上漲/下跌家數 + 漲跌分佈長條圖。"""
+    p = pd.to_numeric(df["漲跌%"], errors="coerce").dropna()
+    if p.empty:
+        return
+    up, dn, flat = int((p > 0).sum()), int((p < 0).sum()), int((p == 0).sum())
+    m = st.columns(3)
+    m[0].metric("上漲", f"{up} 檔")
+    m[1].metric("下跌", f"{dn} 檔")
+    m[2].metric("平盤", f"{flat} 檔")
+    buckets = {"漲>5%": int((p > 5).sum()), "漲0~5%": int(((p > 0) & (p <= 5)).sum()),
+               "跌0~5%": int(((p < 0) & (p >= -5)).sum()), "跌>5%": int((p < -5).sum())}
+    bcolors = ["#a50f15", "#fb6a4a", "#74c476", "#006d2c"]
+    fig = go.Figure(go.Bar(x=list(buckets.keys()), y=list(buckets.values()),
+                    marker_color=bcolors, text=list(buckets.values()), textposition="outside"))
+    fig.update_layout(height=200, margin=dict(l=10, r=10, t=10, b=10),
+                      yaxis_title="檔數", showlegend=False)
+    st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG)
+    tone = "普漲(當沖偏多)" if up > dn * 1.5 else ("普跌(偏空)" if dn > up * 1.5 else "漲跌互見(分歧)")
+    st.caption(f"今日股池:{up} 漲 / {dn} 跌 → **{tone}**。")
 
 
 def daytrade_pnl():
