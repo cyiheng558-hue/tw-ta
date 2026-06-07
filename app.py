@@ -26,7 +26,7 @@ from charting import (resample_ohlcv, signal_markers, volume_profile,
                       support_resistance, candle_patterns)
 from screener import screen, load_universe, DEFAULT_CONDITIONS
 from risk import suggest as risk_suggest
-from assistant import answer as assistant_answer
+from assistant import answer as assistant_answer, QUICK
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WATCHLIST = os.path.join(HERE, "watchlist.txt")
@@ -99,15 +99,23 @@ with st.sidebar:
     if "chat" not in st.session_state:
         st.session_state["chat"] = [{"role": "assistant",
                                      "text": "嗨!我是看盤小幫手 👋 想知道哪個指標、功能或名詞?直接問我。"}]
-    _box = st.container(height=320)
+    _box = st.container(height=300)
     for _m in st.session_state["chat"]:
         _box.chat_message(_m["role"]).write(_m["text"])
+
+    _pending = None
+    st.caption("快速問:")
+    _qc = st.columns(2)
+    for _i, _qq in enumerate(QUICK):
+        if _qc[_i % 2].button(_qq, key=f"quick{_i}", width="stretch"):
+            _pending = _qq
     with st.form("chat_form", clear_on_submit=True):
         _q = st.text_input("問題", label_visibility="collapsed", placeholder="輸入問題後按『問』")
-        _sent = st.form_submit_button("問")
-    if _sent and _q:
-        st.session_state["chat"].append({"role": "user", "text": _q})
-        st.session_state["chat"].append({"role": "assistant", "text": assistant_answer(_q)})
+        if st.form_submit_button("問") and _q:
+            _pending = _q
+    if _pending:
+        st.session_state["chat"].append({"role": "user", "text": _pending})
+        st.session_state["chat"].append({"role": "assistant", "text": assistant_answer(_pending)})
         st.rerun()
     if len(st.session_state["chat"]) > 1 and st.button("清空對話", key="chat_clear"):
         st.session_state["chat"] = st.session_state["chat"][:1]
