@@ -208,7 +208,7 @@ FinMind 免費版有流量上限(匿名最嚴,且跟同 IP 的人共用)。兩�
 | `screener.py` | 自訂條件選股 |
 | `chips.py` | 三大法人/外資持股/累計買賣超/券資比 |
 | `fundamentals.py` | 股名/估值/EPS/毛利率/ROE/配息/本益比評價 |
-| `news.py` | 個股新聞 |
+| `news.py` | 個股新聞(Google News RSS,即時) |
 | `score.py` | 技術+基本+籌碼 綜合評分 |
 | `broker.py` | 券商分點進出(HiStock 爬蟲,當日/3日/5日) |
 | `sector.py` | 類股強弱(各產業平均報酬) |
