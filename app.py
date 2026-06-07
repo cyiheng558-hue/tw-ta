@@ -29,6 +29,7 @@ from news import latest_news
 from score import composite, rank_codes
 from broker import broker_branch
 from sector import sector_strength
+from futures import futures_net_oi, summary as fut_summary
 from screener import screen, load_universe, DEFAULT_CONDITIONS
 from risk import suggest as risk_suggest
 from backtest import BACKTESTABLE
@@ -230,6 +231,16 @@ def c_sector(codes, days):
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
+def c_fut_oi(days):
+    return futures_net_oi(days=days)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def c_fut_summary():
+    return fut_summary()
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
 def c_score(code, swing_trend):
     return composite(code, e=enrich(fetch(code, period="1y")), swing_trend=swing_trend)
 
@@ -319,6 +330,32 @@ with ov:
 
 st.caption("資料:yfinance(延遲約15分鐘日線)+ FinMind(籌碼/基本面)。"
            "以下皆為客觀計算,**非投資建議**,請自行評估風險。")
+
+# 大盤多空:三大法人台指期淨未平倉(勾選才載入,避免拖慢首屏)
+if st.checkbox("顯示大盤多空(三大法人台指期淨未平倉口數)", key="show_fut"):
+    fs = c_fut_summary()
+    if not fs:
+        st.info("抓不到期貨資料(FinMind 流量上限或非交易日)。")
+    else:
+        fc = st.columns(4)
+        fc[0].metric("外資淨未平倉(口)", f"{fs['外資淨']:+,.0f}",
+                     f"{fs['外資增減']:+,.0f}" if fs.get("外資增減") is not None else None)
+        fc[1].metric("投信淨(口)", f"{fs['投信淨']:+,.0f}")
+        fc[2].metric("自營淨(口)", f"{fs['自營淨']:+,.0f}")
+        fc[3].metric("三大法人淨(口)", f"{fs['三大法人淨']:+,.0f}")
+        st.caption(f"資料日 {fs['日期']}。正=偏多(站多方)、負=偏空。外資淨未平倉常作大盤方向參考。")
+        foi = c_fut_oi(40)
+        if not foi.empty:
+            foifig = go.Figure()
+            for col, color in [("外資", "#d62728"), ("投信", "#1f77b4"),
+                               ("自營商", "#2ca02c"), ("三大法人合計", "#000000")]:
+                foifig.add_trace(go.Scatter(x=foi.index, y=foi[col], name=col,
+                                 line=dict(color=color, width=1.5 if col == "三大法人合計" else 1)))
+            foifig.add_hline(y=0, line_dash="dash", line_color="gray")
+            foifig.update_layout(height=300, title="三大法人台指期淨未平倉口數趨勢",
+                                 margin=dict(l=10, r=10, t=40, b=10),
+                                 legend=dict(orientation="h", y=1.15))
+            st.plotly_chart(foifig, width="stretch", config=PLOTLY_CONFIG)
 
 tab_scan, tab_screen, tab_stock, tab_swing, tab_cmp, tab_watch = st.tabs(
     ["🔍 清單掃描", "🎯 條件篩選", "📊 個股分析(短線)", "📈 中線分析", "🆚 比較", "⚙️ 自選股管理"])
@@ -639,6 +676,22 @@ with tab_stock:
                         st.plotly_chart(fhfig, width="stretch", config=PLOTLY_CONFIG)
                     else:
                         st.caption("(外資持股比率資料抓取中或無資料)")
+
+                # 融資融券餘額趨勢
+                mtrend = c_margin(code, 60)
+                if not mtrend.empty:
+                    mfig = make_subplots(specs=[[{"secondary_y": True}]])
+                    mfig.add_trace(go.Scatter(x=mtrend.index, y=mtrend["融資餘額"], name="融資餘額",
+                                   line=dict(color="#d62728")), secondary_y=False)
+                    mfig.add_trace(go.Scatter(x=mtrend.index, y=mtrend["融券餘額"], name="融券餘額",
+                                   line=dict(color="#2ca02c")), secondary_y=True)
+                    mfig.update_layout(height=260, title="融資 / 融券餘額趨勢(張)",
+                                       margin=dict(l=10, r=10, t=40, b=10),
+                                       legend=dict(orientation="h", y=1.2))
+                    mfig.update_yaxes(title_text="融資(張)", secondary_y=False)
+                    mfig.update_yaxes(title_text="融券(張)", secondary_y=True)
+                    st.plotly_chart(mfig, width="stretch", config=PLOTLY_CONFIG)
+                    st.caption("融資增=散戶加碼(籌碼偏亂);融券增=空方增加。")
 
                 # 券商分點進出(HiStock 爬蟲)
                 st.divider()
