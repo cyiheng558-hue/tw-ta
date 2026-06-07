@@ -277,6 +277,14 @@ def to_excel_bytes(df: pd.DataFrame) -> bytes:
     return buf.getvalue()
 
 
+def date_breaks(index):
+    """算出資料日期區間內『沒有資料』的日期(週末/假日),給 K 線圖跳過、消除空格。"""
+    idx = pd.DatetimeIndex(index)
+    full = pd.date_range(idx.min(), idx.max(), freq="D")
+    missing = full.difference(idx)
+    return [d.strftime("%Y-%m-%d") for d in missing]
+
+
 def cn_ohlc_hover(e):
     """產生 K 線的中文懸停文字:日期 + 開/高/低/收。"""
     return [
@@ -590,6 +598,7 @@ with tab_stock:
                 fig.update_layout(height=720, xaxis_rangeslider_visible=False,
                                   margin=dict(l=10, r=10, t=30, b=10),
                                   legend=dict(orientation="h", y=1.04))
+                fig.update_xaxes(rangebreaks=[dict(values=date_breaks(e.index))])
                 st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG)
 
             # ---------- 基本面 ----------
@@ -864,6 +873,7 @@ with tab_swing:
             sfig.update_layout(height=500, xaxis_rangeslider_visible=False,
                                margin=dict(l=10, r=10, t=30, b=10),
                                legend=dict(orientation="h", y=1.06))
+            sfig.update_xaxes(rangebreaks=[dict(values=date_breaks(e.index))])
             st.plotly_chart(sfig, width="stretch", config=PLOTLY_CONFIG)
 
             # 波段回測
