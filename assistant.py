@@ -198,15 +198,19 @@ def _kb_answer(q: str):
     return ans
 
 
+_MAX_Q_LEN = 500     # 單次提問字數上限(防灌爆 input token)
+_MAX_HIST = 6        # 帶入的歷史則數
+_MAX_HIST_LEN = 600  # 每則歷史截斷長度
+
+
 def _llm_answer(q: str, key: str, history=None) -> str:
     import anthropic
     client = anthropic.Anthropic(api_key=key)
-    # 把對話歷史(最近 10 則)轉成 Claude 格式,實現多輪對話
     messages = []
-    for m in (history or [])[-10:]:
+    for m in (history or [])[-_MAX_HIST:]:
         role = "assistant" if m.get("role") == "assistant" else "user"
-        messages.append({"role": role, "content": m.get("text", "")})
-    messages.append({"role": "user", "content": q})
+        messages.append({"role": role, "content": (m.get("text", "") or "")[:_MAX_HIST_LEN]})
+    messages.append({"role": "user", "content": q[:_MAX_Q_LEN]})
     msg = client.messages.create(model=_MODEL, max_tokens=800,
                                  system=_SYSTEM, messages=messages)
     return "".join(getattr(b, "text", "") for b in msg.content) or _kb_answer(q)
@@ -214,15 +218,16 @@ def _llm_answer(q: str, key: str, history=None) -> str:
 
 def answer(q: str, history=None) -> str:
     """回答問題。有 ANTHROPIC_API_KEY 用 Claude(可多輪對話),否則用知識庫。"""
-    q = (q or "").strip()
+    q = (q or "").strip()[:_MAX_Q_LEN]
     if not q:
         return _FALLBACK
     key = os.environ.get("ANTHROPIC_API_KEY")
     if key:
         try:
             return _llm_answer(q, key, history)
-        except Exception as e:
-            return _kb_answer(q) + f"\n\n(AI 暫時無法回應:{type(e).__name__};已用內建知識庫回答)"
+        except Exception:
+            # 不洩漏內部錯誤類型(如金鑰失效/額度),中性訊息 + 退回知識庫
+            return _kb_answer(q) + "\n\n(AI 暫時忙線,已用內建知識庫回答)"
     return _kb_answer(q)
 
 

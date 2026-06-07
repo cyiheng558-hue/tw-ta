@@ -9,6 +9,7 @@ import json
 import datetime as _dt
 import pandas as pd
 
+from tw_time import taipei_today
 from finmind import fm_get, safe
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -24,7 +25,7 @@ def _get(dataset, code=None, start=None, timeout=20):
 # ---------------- 股票名稱 ----------------
 def load_stock_names() -> dict:
     """回傳 {代號: 名稱} 字典(全市場),快取每日更新一次。"""
-    today = _dt.date.today().isoformat()
+    today = taipei_today().isoformat()
     cache = os.path.join(CACHE_DIR, f"stock_names_{today}.json")
     if os.path.exists(cache):
         try:
@@ -58,7 +59,7 @@ def name_of(code: str, names: dict = None) -> str:
 
 def load_industry() -> dict:
     """回傳 {代號: 產業類別},快取每日更新一次。"""
-    today = _dt.date.today().isoformat()
+    today = taipei_today().isoformat()
     cache = os.path.join(CACHE_DIR, f"stock_industry_{today}.json")
     if os.path.exists(cache):
         try:
@@ -85,7 +86,7 @@ def load_industry() -> dict:
 @safe(dict)
 def valuation(code: str) -> dict:
     """最新本益比、殖利率(%)、股價淨值比。抓不到回傳空 dict。"""
-    start = (_dt.date.today() - _dt.timedelta(days=15)).isoformat()
+    start = (taipei_today() - _dt.timedelta(days=15)).isoformat()
     data = _get("TaiwanStockPER", code, start)
     if not data:
         return {}
@@ -102,7 +103,7 @@ def valuation(code: str) -> dict:
 @safe(dict)
 def revenue_yoy(code: str) -> dict:
     """最新月營收與年增率(%)。需比較去年同月,故抓近 ~14 個月。"""
-    start = (_dt.date.today() - _dt.timedelta(days=430)).isoformat()
+    start = (taipei_today() - _dt.timedelta(days=430)).isoformat()
     data = _get("TaiwanStockMonthRevenue", code, start)
     if not data:
         return {}
@@ -128,7 +129,7 @@ def revenue_yoy(code: str) -> dict:
 @safe(pd.DataFrame)
 def margin_short(code: str, days: int = 20) -> pd.DataFrame:
     """近 days 日融資/融券餘額(張)。回傳含 融資餘額、融券餘額 的 DataFrame。"""
-    start = (_dt.date.today() - _dt.timedelta(days=days * 2)).isoformat()
+    start = (taipei_today() - _dt.timedelta(days=days * 2)).isoformat()
     data = _get("TaiwanStockMarginPurchaseShortSale", code, start)
     if not data:
         return pd.DataFrame()
@@ -159,7 +160,7 @@ def margin_summary(code: str) -> dict:
 @safe(dict)
 def financials(code: str) -> dict:
     """最新一季獲利能力 + 近四季(TTM)EPS/ROE。抓不到回傳空 dict。"""
-    start = (_dt.date.today() - _dt.timedelta(days=620)).isoformat()  # 約 5 季
+    start = (taipei_today() - _dt.timedelta(days=620)).isoformat()  # 約 5 季
     data = _get("TaiwanStockFinancialStatements", code, start)
     if not data:
         return {}
@@ -214,7 +215,7 @@ def financials_history(code: str, n_quarters: int = 12) -> dict:
     欄位:毛利率%、營益率%、淨利率%、EPS、ROE%(季為單季,年為全年加總)。
     抓不到回傳空 dict。
     """
-    start = (_dt.date.today() - _dt.timedelta(days=1900)).isoformat()  # 約 5 年
+    start = (taipei_today() - _dt.timedelta(days=1900)).isoformat()  # 約 5 年
     fs = _get("TaiwanStockFinancialStatements", code, start)
     if not fs:
         return {}
@@ -294,7 +295,7 @@ def dividend_history(code: str) -> dict:
 @safe(pd.DataFrame)
 def revenue_trend(code: str) -> pd.DataFrame:
     """近 ~13 個月營收 + 年增率,回傳 DataFrame(月份索引)。"""
-    start = (_dt.date.today() - _dt.timedelta(days=800)).isoformat()
+    start = (taipei_today() - _dt.timedelta(days=800)).isoformat()
     data = _get("TaiwanStockMonthRevenue", code, start)
     if not data:
         return pd.DataFrame()
@@ -322,7 +323,7 @@ def revenue_trend(code: str) -> pd.DataFrame:
 @safe(dict)
 def pe_valuation(code: str) -> dict:
     """用近 ~3 年本益比算現在落在哪個區間(percentile),判斷相對貴/便宜。"""
-    start = (_dt.date.today() - _dt.timedelta(days=1100)).isoformat()
+    start = (taipei_today() - _dt.timedelta(days=1100)).isoformat()
     data = _get("TaiwanStockPER", code, start)
     if not data:
         return {}

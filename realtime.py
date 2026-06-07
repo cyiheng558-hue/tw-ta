@@ -105,18 +105,27 @@ def quote_detail(code) -> dict:
     if not m:
         return {}
 
-    def _plist(s):
-        return [float(x) for x in (s or "").split("_") if x]
+    def _pairs(price_s, vol_s):
+        # 價、量逐格對齊解析,'-'/空值→None;只保留價有效的檔位(避免 ValueError 與錯位)
+        ps = [_num(x) for x in (price_s or "").split("_")]
+        vs = [_num(x) for x in (vol_s or "").split("_")]
+        out = []
+        for i, p in enumerate(ps):
+            if p is not None:
+                out.append((p, vs[i] if i < len(vs) and vs[i] is not None else 0.0))
+        return out
 
-    bid_p, bid_v = _plist(m.get("b")), _plist(m.get("g"))
-    ask_p, ask_v = _plist(m.get("a")), _plist(m.get("f"))
+    bids = _pairs(m.get("b"), m.get("g"))   # [(價,量), ...] 由高到低
+    asks = _pairs(m.get("a"), m.get("f"))
+    bid_v = [v for _, v in bids]
+    ask_v = [v for _, v in asks]
     z = _num(m.get("z")) or _num(m.get("o")) or _num(m.get("y"))
     y, u, w = _num(m.get("y")), _num(m.get("u")), _num(m.get("w"))
     return {
         "代號": m.get("c"), "名稱": m.get("n"), "成交": z, "昨收": y,
         "漲停": u, "跌停": w,
-        "買盤": list(zip(bid_p, bid_v)),   # [(價,量), ...] 由高到低
-        "賣盤": list(zip(ask_p, ask_v)),
+        "買盤": bids,   # [(價,量), ...] 由高到低
+        "賣盤": asks,
         "委買量": sum(bid_v), "委賣量": sum(ask_v),
         "距漲停%": round((u - z) / z * 100, 2) if (u and z) else None,
         "距跌停%": round((z - w) / z * 100, 2) if (w and z) else None,
@@ -125,8 +134,9 @@ def quote_detail(code) -> dict:
 
 
 def is_market_hours() -> bool:
-    """是否為台股交易時間(平日 09:00–13:30)。"""
-    now = _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=8)))
+    """是否為台股交易時間(平日 09:00–13:30,台北時間)。"""
+    from tw_time import taipei_now
+    now = taipei_now()
     if now.weekday() >= 5:
         return False
     t = now.hour * 60 + now.minute

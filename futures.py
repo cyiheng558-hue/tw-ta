@@ -8,6 +8,7 @@
 import datetime as _dt
 import pandas as pd
 
+from tw_time import taipei_today
 from finmind import fm_get, safe
 
 _ORDER = ["外資", "投信", "自營商"]
@@ -19,7 +20,7 @@ def futures_net_oi(days: int = 40) -> pd.DataFrame:
 
     回傳以日期為索引的 DataFrame,欄位:外資、投信、自營商、三大法人合計。
     """
-    start = (_dt.date.today() - _dt.timedelta(days=days * 2)).isoformat()
+    start = (taipei_today() - _dt.timedelta(days=days * 2)).isoformat()
     data = fm_get("TaiwanFuturesInstitutionalInvestors", "TX", start)
     if not data:
         return pd.DataFrame()

@@ -8,6 +8,7 @@ import pandas as pd
 
 from data import fetch
 from indicators import enrich
+from tw_time import taipei_today
 from finmind import fm_get, safe
 from futures import summary as fut_summary
 
@@ -73,7 +74,7 @@ def index_status() -> dict:
 @safe(pd.DataFrame)
 def inst_total(days: int = 30) -> pd.DataFrame:
     """全市場三大法人買賣超(淨額,億)。回傳外資/投信/自營商/合計 趨勢。"""
-    start = (_dt.date.today() - _dt.timedelta(days=days * 2)).isoformat()
+    start = (taipei_today() - _dt.timedelta(days=days * 2)).isoformat()
     data = fm_get("TaiwanStockTotalInstitutionalInvestors", start_date=start)
     if not data:
         return pd.DataFrame()

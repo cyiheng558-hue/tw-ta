@@ -45,15 +45,17 @@ except Exception:
 # ===================== 進站驗證碼 =====================
 # 密碼預設 1524,可用 Secrets / 環境變數 APP_PASSWORD 覆蓋(改密碼不必動程式碼)。
 def _app_password():
+    """回傳 (密碼, 是否已自訂)。未自訂時用預設 1524 並提醒。"""
     try:
         if "APP_PASSWORD" in st.secrets:
-            return str(st.secrets["APP_PASSWORD"])
+            return str(st.secrets["APP_PASSWORD"]), True
     except Exception:
         pass
-    return os.environ.get("APP_PASSWORD", "") or "1524"
+    env = os.environ.get("APP_PASSWORD", "")
+    return (env, True) if env else ("1524", False)
 
 
-APP_PASSWORD = _app_password()
+APP_PASSWORD, _PW_CUSTOM = _app_password()
 
 
 _MAX_TRIES = 5  # 同一工作階段連續錯誤上限,防暴力嘗試
@@ -81,6 +83,9 @@ def require_password():
         st.error(f"錯誤次數過多(已 {tries} 次),請重新整理頁面再試。")
         st.stop()
     st.caption("本站需要驗證碼才能使用,請向提供者索取。")
+    if not _PW_CUSTOM:
+        st.warning("⚠ 目前使用預設密碼。若要部署分享,請到 Settings → Secrets 設 "
+                   "`APP_PASSWORD` 改成自己的密碼(預設值寫在公開程式碼裡)。")
     st.text_input("請輸入驗證碼", type="password", key="pwd_input", on_change=_check)
     if st.session_state.get("pwd_bad"):
         st.error(f"驗證碼錯誤,請再試一次。(剩 {_MAX_TRIES - tries} 次)")
@@ -90,6 +95,7 @@ def require_password():
 require_password()
 
 from ui_common import *
+from ui_daytrade import *
 
 
 # ===================== 左側小幫手 =====================
@@ -117,11 +123,21 @@ with st.sidebar:
         if st.form_submit_button("問") and _q:
             _pending = _q
     if _pending:
-        _hist = list(st.session_state["chat"])  # 傳對話歷史給 AI 做多輪對話
-        st.session_state["chat"].append({"role": "user", "text": _pending})
-        with st.spinner("思考中…"):
-            _ans = assistant_answer(_pending, _hist)
-        st.session_state["chat"].append({"role": "assistant", "text": _ans})
+        _pending = _pending[:500]
+        _now = _dt.datetime.now().timestamp()
+        _ts = [t for t in st.session_state.get("chat_ts", []) if _now - t < 180]
+        if using_llm() and len(_ts) >= 8:   # AI 模式:每3分鐘最多8題,防額度被用爆
+            st.session_state["chat"].append({"role": "user", "text": _pending})
+            st.session_state["chat"].append({"role": "assistant",
+                "text": "提問有點頻繁,請稍等一下再問 🙏(避免 AI 額度被用爆)。"})
+        else:
+            _ts.append(_now)
+            st.session_state["chat_ts"] = _ts
+            _hist = list(st.session_state["chat"])
+            st.session_state["chat"].append({"role": "user", "text": _pending})
+            with st.spinner("思考中…"):
+                _ans = assistant_answer(_pending, _hist)
+            st.session_state["chat"].append({"role": "assistant", "text": _ans})
         st.rerun()
     if len(st.session_state["chat"]) > 1 and st.button("清空對話", key="chat_clear"):
         st.session_state["chat"] = st.session_state["chat"][:1]
@@ -221,8 +237,8 @@ with tab_day:
             st.success(f"符合篩選 {len(flt)} 檔。")
             st.dataframe(styled_table(flt, ["漲跌%"]), width="stretch", hide_index=True,
                          height=min(38 * len(flt) + 40, 600))
-            st.caption("量比=今日累積量÷近20日均量(>1=量已放大);📈創高/🔴漲停近=盤中異動。"
-                       "選一檔到下方輸入框看分鐘K與五檔。")
+            st.caption("量比=今日累積量÷(20日均量×盤中時間進度),>1=量能放大(已正規化,早盤也準);"
+                       "異動:📈強勢/📉弱勢/🔴漲停近。選一檔到下方看分鐘K與五檔。")
 
     st.divider()
     d1, d2 = st.columns([1, 1])

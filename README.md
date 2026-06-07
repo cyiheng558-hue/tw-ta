@@ -207,6 +207,7 @@ FinMind 免費版有流量上限(匿名最嚴,且跟同 IP 的人共用)。兩�
 | `app.py` | ⭐ Streamlit 網頁介面(主要入口、分頁邏輯) |
 | `assistant.py` | 左側小幫手(知識庫問答;設 ANTHROPIC_API_KEY 即升級為 Claude 多輪對話) |
 | `ui_common.py` | UI 共用層:快取包裝、輔助函式、常數、即時報價、共用圖表 |
+| `ui_daytrade.py` | 當沖看盤 UI:即時看板、異動掃描、分鐘K+VWAP、五檔、提醒、損益 |
 | `tw_time.py` | 台北時區工具(避免雲端 UTC 差一天) |
 | `data.py` | yfinance 股價抓取 + 批次下載 + 本地快取 |
 | `indicators.py` | 技術指標計算 |
@@ -253,6 +254,10 @@ APP_PASSWORD = "你的新密碼"
    - **本機**:`setx ANTHROPIC_API_KEY "你的金鑰"` 後重開程式。
    - (可選)`ANTHROPIC_MODEL` 指定模型,預設 `claude-haiku-4-5-20251001`(便宜快速)。
 3. 設好後小幫手會自動切換成 🤖 Claude;沒設或呼叫失敗時自動退回知識庫,不會壞掉。
+
+> ⚠ **成本提醒**:雲端部署時所有人共用你的金鑰計費。已內建防護(輸入長度上限、
+> 每3分鐘最多8題、歷史截斷),但**務必到 Anthropic console 對金鑰設「用量上限/spending limit」**,
+> 避免被朋友問爆帳單。怕的話可只在本機設金鑰、雲端維持免費知識庫。
 
 ## 穩定性 / 測試
 

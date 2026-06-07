@@ -14,6 +14,7 @@ import datetime as _dt
 import pandas as pd
 import requests
 
+from tw_time import taipei_today
 from data import fetch
 
 _HDR = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
@@ -45,7 +46,7 @@ def _latest_trading_day(code) -> _dt.date:
     df = fetch(code, period="1mo")
     if df is not None and not df.empty:
         return df.index[-1].date()
-    return _dt.date.today()
+    return taipei_today()
 
 
 def broker_branch(code: str, days: int = 1, top: int = 15) -> dict:

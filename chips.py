@@ -10,6 +10,7 @@ FinMind 免 token 也能用,但有流量限制(約每小時數百次);
 import datetime as _dt
 import pandas as pd
 
+from tw_time import taipei_today
 from finmind import fm_get, safe
 
 # FinMind 的法人名稱 -> 中文歸類
@@ -24,7 +25,7 @@ def fetch_institutional(code: str, days: int = 60) -> pd.DataFrame:
 
     欄位:外資、投信、自營商、合計(單位:張)。抓不到時回傳空表。
     """
-    start = (_dt.date.today() - _dt.timedelta(days=days * 2)).isoformat()
+    start = (taipei_today() - _dt.timedelta(days=days * 2)).isoformat()
     data = fm_get("TaiwanStockInstitutionalInvestorsBuySell", code, start)
     if not data:
         return pd.DataFrame()
@@ -87,7 +88,7 @@ def cumulative_net(code: str, days: int = 60) -> pd.DataFrame:
 @safe(pd.DataFrame)
 def foreign_holding(code: str, days: int = 60) -> pd.DataFrame:
     """外資持股比率(%)趨勢。"""
-    start = (_dt.date.today() - _dt.timedelta(days=days * 2)).isoformat()
+    start = (taipei_today() - _dt.timedelta(days=days * 2)).isoformat()
     data = fm_get("TaiwanStockShareholding", code, start)
     if not data:
         return pd.DataFrame()
@@ -100,7 +101,7 @@ def foreign_holding(code: str, days: int = 60) -> pd.DataFrame:
 @safe(dict)
 def margin_short_ratio(code: str) -> dict:
     """券資比(%)= 融券餘額 / 融資餘額 * 100。比率高代表空方相對積極。"""
-    start = (_dt.date.today() - _dt.timedelta(days=20)).isoformat()
+    start = (taipei_today() - _dt.timedelta(days=20)).isoformat()
     data = fm_get("TaiwanStockMarginPurchaseShortSale", code, start)
     if not data:
         return {}

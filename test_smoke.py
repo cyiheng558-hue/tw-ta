@@ -35,6 +35,7 @@ def test_all_modules_import():
     import indicators, signals, backtest, swing, risk, score  # noqa
     import data, chips, fundamentals, news, finmind, broker, screener  # noqa
     import sector, futures, market, realtime, charting, tw_time, assistant  # noqa
+    import ui_common, ui_daytrade  # noqa
 
 
 def test_indicators(df):
@@ -96,3 +97,20 @@ def test_finmind_cache_key_no_token():
     import finmind
     p = finmind._cache_path({"dataset": "X", "data_id": "2330"})
     assert "token" not in p.lower()
+
+
+def test_assistant_kb():
+    from assistant import answer
+    assert "KD" in answer("KD是什麼")
+    a = answer("可以買2330嗎")           # 問買賣 → 應觸發免責
+    assert ("投資建議" in a) or ("明牌" in a)
+    assert "我可以回答" in answer("zxcvbnm 隨機亂碼")  # 不相關 → fallback
+
+
+def test_movement_flag():
+    from ui_daytrade import _movement_flag
+    assert _movement_flag(10) == "🔴漲停近"
+    assert _movement_flag(-10) == "🟢跌停近"
+    assert _movement_flag(6) == "📈強勢"
+    assert _movement_flag(-6) == "📉弱勢"
+    assert _movement_flag(0) == "" and _movement_flag(None) == ""
