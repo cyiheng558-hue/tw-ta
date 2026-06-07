@@ -33,6 +33,8 @@ from sector import sector_strength
 from futures import futures_net_oi, summary as fut_summary
 from market import index_status, inst_total
 from realtime import quote as rt_quote, is_market_hours
+from charting import (resample_ohlcv, signal_markers, volume_profile,
+                      support_resistance, candle_patterns)
 from screener import screen, load_universe, DEFAULT_CONDITIONS
 from risk import suggest as risk_suggest
 from backtest import BACKTESTABLE
@@ -120,6 +122,10 @@ PLOTLY_CONFIG = {
         }
     },
 }
+
+# K線圖專用:繁中工具列 + 畫線工具(趨勢線/方框/橡皮擦)
+CHART_CONFIG = dict(PLOTLY_CONFIG, modeBarButtonsToAdd=[
+    "drawline", "drawopenpath", "drawrect", "eraseshape"])
 
 
 # ===================== 快取層 =====================
@@ -617,31 +623,90 @@ with tab_stock:
 
             # ---------- 技術線圖 ----------
             if view == "📈 技術線圖":
+                tc1, tc2, tc3, tc4 = st.columns([1.6, 1, 1, 1])
+                kfreq = tc1.radio("週期", ["日K", "週K", "月K"], horizontal=True, key="kfreq")
+                show_sig = tc2.checkbox("訊號箭頭", value=True, key="k_sig")
+                show_sr = tc3.checkbox("支撐壓力", value=True, key="k_sr")
+                show_pat = tc4.checkbox("型態標記", value=False, key="k_pat")
+
+                if kfreq == "週K":
+                    base = resample_ohlcv(df, "W-FRI"); ek = enrich(base)
+                elif kfreq == "月K":
+                    base = resample_ohlcv(df, "ME"); ek = enrich(base)
+                else:
+                    base, ek = df, e
+
                 fig = make_subplots(rows=4, cols=1, shared_xaxes=True,
                                     row_heights=[0.5, 0.17, 0.17, 0.16], vertical_spacing=0.03,
-                                    subplot_titles=("K線/均線/布林", "KD", "MACD", "成交量"))
-                fig.add_trace(go.Candlestick(x=e.index, open=e["Open"], high=e["High"],
-                              low=e["Low"], close=e["Close"], name="K線",
-                              text=cn_ohlc_hover(e), hoverinfo="text",
+                                    subplot_titles=(f"{kfreq}/均線/布林", "KD", "MACD", "成交量"))
+                fig.add_trace(go.Candlestick(x=ek.index, open=ek["Open"], high=ek["High"],
+                              low=ek["Low"], close=ek["Close"], name="K線",
+                              text=cn_ohlc_hover(ek), hoverinfo="text",
                               increasing_line_color="red", decreasing_line_color="green"), row=1, col=1)
-                for n, label, c in [("MA5", "5日線", "orange"), ("MA20", "月線(20日)", "blue"), ("MA60", "季線(60日)", "purple")]:
-                    fig.add_trace(go.Scatter(x=e.index, y=e[n], name=label, line=dict(width=1, color=c)), row=1, col=1)
-                fig.add_trace(go.Scatter(x=e.index, y=e["BB_UP"], line=dict(width=0.5, color="gray"), showlegend=False), row=1, col=1)
-                fig.add_trace(go.Scatter(x=e.index, y=e["BB_LOW"], fill="tonexty",
+                for n, label, c in [("MA5", "MA5", "orange"), ("MA20", "MA20", "blue"), ("MA60", "MA60", "purple")]:
+                    fig.add_trace(go.Scatter(x=ek.index, y=ek[n], name=label, line=dict(width=1, color=c)), row=1, col=1)
+                fig.add_trace(go.Scatter(x=ek.index, y=ek["BB_UP"], line=dict(width=0.5, color="gray"), showlegend=False), row=1, col=1)
+                fig.add_trace(go.Scatter(x=ek.index, y=ek["BB_LOW"], fill="tonexty",
                               fillcolor="rgba(150,150,150,0.12)", line=dict(width=0.5, color="gray"), showlegend=False), row=1, col=1)
-                fig.add_trace(go.Scatter(x=e.index, y=e["K"], name="K值", line=dict(color="orange", width=1)), row=2, col=1)
-                fig.add_trace(go.Scatter(x=e.index, y=e["D"], name="D值", line=dict(color="blue", width=1)), row=2, col=1)
-                hist_colors = ["red" if v >= 0 else "green" for v in e["HIST"]]
-                fig.add_trace(go.Bar(x=e.index, y=e["HIST"], name="柱狀體", marker_color=hist_colors), row=3, col=1)
-                fig.add_trace(go.Scatter(x=e.index, y=e["DIF"], name="DIF差離值", line=dict(color="black", width=1)), row=3, col=1)
-                fig.add_trace(go.Scatter(x=e.index, y=e["MACD"], name="訊號線", line=dict(color="orange", width=1)), row=3, col=1)
-                vol_colors = ["red" if e["Close"].iloc[i] >= e["Open"].iloc[i] else "green" for i in range(len(e))]
-                fig.add_trace(go.Bar(x=e.index, y=e["Volume"], name="成交量", marker_color=vol_colors), row=4, col=1)
-                fig.update_layout(height=720, xaxis_rangeslider_visible=False,
+                fig.add_trace(go.Scatter(x=ek.index, y=ek["K"], name="K值", line=dict(color="orange", width=1)), row=2, col=1)
+                fig.add_trace(go.Scatter(x=ek.index, y=ek["D"], name="D值", line=dict(color="blue", width=1)), row=2, col=1)
+                hist_colors = ["red" if v >= 0 else "green" for v in ek["HIST"]]
+                fig.add_trace(go.Bar(x=ek.index, y=ek["HIST"], name="柱狀體", marker_color=hist_colors), row=3, col=1)
+                fig.add_trace(go.Scatter(x=ek.index, y=ek["DIF"], name="DIF", line=dict(color="black", width=1)), row=3, col=1)
+                fig.add_trace(go.Scatter(x=ek.index, y=ek["MACD"], name="訊號線", line=dict(color="orange", width=1)), row=3, col=1)
+                vol_colors = ["red" if ek["Close"].iloc[i] >= ek["Open"].iloc[i] else "green" for i in range(len(ek))]
+                fig.add_trace(go.Bar(x=ek.index, y=ek["Volume"], name="成交量", marker_color=vol_colors), row=4, col=1)
+
+                # 訊號箭頭
+                if show_sig:
+                    sb, ss = signal_markers(ek)
+                    if sb:
+                        fig.add_trace(go.Scatter(x=[d for d, _, _ in sb], y=[p * 0.985 for _, p, _ in sb],
+                            mode="markers", marker=dict(symbol="triangle-up", color="red", size=9),
+                            name="看多訊號", text=[t for *_, t in sb], hoverinfo="text"), row=1, col=1)
+                    if ss:
+                        fig.add_trace(go.Scatter(x=[d for d, _, _ in ss], y=[p * 1.015 for _, p, _ in ss],
+                            mode="markers", marker=dict(symbol="triangle-down", color="green", size=9),
+                            name="看空訊號", text=[t for *_, t in ss], hoverinfo="text"), row=1, col=1)
+                # 支撐壓力
+                if show_sr:
+                    for lv in support_resistance(base):
+                        fig.add_hline(y=lv, line_dash="dot", line_color="rgba(120,120,120,0.7)",
+                                      line_width=1, row=1, col=1, annotation_text=f"{lv:g}",
+                                      annotation_position="right", annotation_font_size=9)
+                # 型態標記
+                if show_pat:
+                    pats = candle_patterns(base)
+                    if pats:
+                        fig.add_trace(go.Scatter(x=[d for d, _, _ in pats], y=[p for _, p, _ in pats],
+                            mode="text", text=[t for *_, t in pats], textposition="top center",
+                            textfont=dict(size=9, color="purple"), name="型態", hoverinfo="text"), row=1, col=1)
+
+                fig.update_layout(height=720, xaxis_rangeslider_visible=False, dragmode="zoom",
+                                  newshape=dict(line_color="#ff8c00"),
                                   margin=dict(l=10, r=10, t=30, b=10),
                                   legend=dict(orientation="h", y=1.04))
-                fig.update_xaxes(rangebreaks=[dict(values=date_breaks(e.index))])
-                st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG)
+                fig.update_xaxes(showspikes=True, spikemode="across", spikedash="dot", spikethickness=1)
+                fig.update_yaxes(showspikes=True, spikedash="dot", spikethickness=1)
+                if kfreq == "日K":
+                    fig.update_xaxes(rangebreaks=[dict(values=date_breaks(ek.index))])
+                st.plotly_chart(fig, width="stretch", config=CHART_CONFIG)
+                st.caption("🔺看多/🔻看空訊號標在K棒;灰虛線=支撐壓力;工具列可自己畫趨勢線/方框;十字游標對齊讀價。")
+
+                # 量價分佈(Volume Profile)
+                centers, vols, poc = volume_profile(base)
+                if len(centers) and poc is not None:
+                    vpfig = go.Figure()
+                    vpfig.add_trace(go.Bar(x=vols, y=centers, orientation="h",
+                        marker_color=["#d62728" if abs(cc - poc) < 1e-9 else "#9ecae1" for cc in centers],
+                        hovertemplate="價位 %{y:.1f}<br>量 %{x:,.0f}<extra></extra>"))
+                    vpfig.add_hline(y=float(base["Close"].iloc[-1]), line_color="black", line_dash="dash",
+                                    annotation_text="現價", annotation_position="right")
+                    vpfig.update_layout(height=320, title=f"量價分佈 — POC(最大量價位)≈ {poc:.1f}",
+                                        margin=dict(l=10, r=10, t=40, b=10),
+                                        xaxis_title="累積成交量", yaxis_title="價格")
+                    st.plotly_chart(vpfig, width="stretch", config=PLOTLY_CONFIG)
+                    st.caption("橫條=各價位累積成交量;最長(紅)= POC 最多人成交價,常是支撐/壓力中樞。")
 
             # ---------- 基本面 ----------
             elif view == "💲 基本面":
