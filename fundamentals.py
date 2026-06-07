@@ -196,6 +196,65 @@ def financials(code: str) -> dict:
     return out
 
 
+# ---------------- 獲利能力(季 / 年 趨勢) ----------------
+def _quarter_label(date_str: str) -> str:
+    """'2025-03-31' -> '2025Q1'。"""
+    y, m = date_str[:4], int(date_str[5:7])
+    return f"{y}Q{(m + 2) // 3}"
+
+
+def financials_history(code: str, n_quarters: int = 12) -> dict:
+    """季/年的獲利能力趨勢。回傳 {'季': DataFrame, '年': DataFrame}。
+
+    欄位:毛利率%、營益率%、淨利率%、EPS、ROE%(季為單季,年為全年加總)。
+    抓不到回傳空 dict。
+    """
+    start = (_dt.date.today() - _dt.timedelta(days=1900)).isoformat()  # 約 5 年
+    fs = _get("TaiwanStockFinancialStatements", code, start)
+    if not fs:
+        return {}
+    fp = pd.DataFrame(fs).pivot_table(index="date", columns="type",
+                                      values="value", aggfunc="first").sort_index()
+    # 期末股東權益(算 ROE 用)
+    eq = {}
+    bs = _get("TaiwanStockBalanceSheet", code, start)
+    if bs:
+        bdf = pd.DataFrame(bs)
+        e = bdf[bdf["type"] == "Equity"]
+        eq = dict(zip(e["date"], pd.to_numeric(e["value"], errors="coerce")))
+
+    rows = []
+    for date, r in fp.iterrows():
+        rows.append({
+            "date": date, "year": str(date)[:4], "期別": _quarter_label(str(date)),
+            "Rev": r.get("Revenue"), "GP": r.get("GrossProfit"),
+            "OI": r.get("OperatingIncome"), "NI": r.get("IncomeAfterTaxes"),
+            "EPS": r.get("EPS"), "Equity": eq.get(date),
+        })
+    d = pd.DataFrame(rows)
+
+    def _metrics(df, eps_col="EPS"):
+        out = pd.DataFrame(index=df.index)
+        out["毛利率%"] = (df["GP"] / df["Rev"] * 100).round(1)
+        out["營益率%"] = (df["OI"] / df["Rev"] * 100).round(1)
+        out["淨利率%"] = (df["NI"] / df["Rev"] * 100).round(1)
+        out["EPS"] = df[eps_col].round(2)
+        out["ROE%"] = (df["NI"] / df["Equity"] * 100).round(1)
+        return out
+
+    # 季
+    q = d.set_index("期別")
+    q_view = _metrics(q).tail(n_quarters)
+
+    # 年(全年加總;期末權益取該年最後一季)
+    g = d.groupby("year").agg({"Rev": "sum", "GP": "sum", "OI": "sum",
+                               "NI": "sum", "EPS": "sum", "Equity": "last"})
+    y_view = _metrics(g)
+    y_view.index.name = "年度"
+
+    return {"季": q_view, "年": y_view}
+
+
 # ---------------- 配息歷史 ----------------
 def dividend_history(code: str) -> dict:
     """近年現金股利與連續配息年數。"""

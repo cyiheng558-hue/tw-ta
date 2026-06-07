@@ -23,7 +23,8 @@ from backtest import backtest_signal, backtest_all, benchmark_return
 from chips import fetch_institutional, chip_summary
 from fundamentals import (load_stock_names, name_of, valuation, revenue_yoy,
                           margin_short, financials, load_industry,
-                          dividend_history, revenue_trend, pe_valuation)
+                          dividend_history, revenue_trend, pe_valuation,
+                          financials_history)
 from chips import cumulative_net, foreign_holding, margin_short_ratio
 from news import latest_news
 from score import composite, rank_codes
@@ -183,6 +184,11 @@ def c_swing_bt(code, hold, sl, tp):
 @st.cache_data(ttl=1800, show_spinner=False)
 def c_financials(code):
     return financials(code)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def c_fin_hist(code):
+    return financials_history(code)
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -629,6 +635,30 @@ with tab_stock:
                         if div.get("近年現金股利"):
                             hist = " / ".join(f"{y}:{c}" for y, c in div["近年現金股利"].items())
                             st.caption("近年現金股利:" + hist)
+
+                # 獲利能力趨勢(季 / 年)
+                st.markdown("**獲利能力趨勢**")
+                fh = c_fin_hist(code)
+                if not fh:
+                    st.caption("(獲利歷史資料抓取中或無資料)")
+                else:
+                    fmode = st.radio("檢視", ["季", "年"], horizontal=True, key="fin_mode")
+                    fdf = fh[fmode]
+                    pfig = make_subplots(specs=[[{"secondary_y": True}]])
+                    pfig.add_trace(go.Bar(x=fdf.index.astype(str), y=fdf["EPS"], name="EPS(元)",
+                                   marker_color="#9ecae1"), secondary_y=True)
+                    for col, color in [("毛利率%", "#d62728"), ("淨利率%", "#1f77b4"), ("ROE%", "#2ca02c")]:
+                        pfig.add_trace(go.Scatter(x=fdf.index.astype(str), y=fdf[col], name=col,
+                                       line=dict(color=color, width=2)), secondary_y=False)
+                    pfig.update_layout(height=300, margin=dict(l=10, r=10, t=30, b=10),
+                                       title=f"獲利能力({fmode})",
+                                       legend=dict(orientation="h", y=1.18))
+                    pfig.update_yaxes(title_text="比率 %", secondary_y=False)
+                    pfig.update_yaxes(title_text="EPS(元)", secondary_y=True)
+                    st.plotly_chart(pfig, width="stretch", config=PLOTLY_CONFIG)
+                    st.dataframe(styled_table(fdf.reset_index()), width="stretch", hide_index=True)
+                    if fmode == "季":
+                        st.caption("季 ROE 為單季淨利/期末權益(約為年化的 1/4);年 ROE 為全年。最新年度可能僅累計到最近一季。")
 
             # ---------- 籌碼面 ----------
             elif view == "💰 籌碼面":
