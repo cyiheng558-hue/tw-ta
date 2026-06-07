@@ -8,7 +8,7 @@ import pandas as pd
 
 from data import fetch
 from indicators import enrich
-from finmind import fm_get
+from finmind import fm_get, safe
 from futures import summary as fut_summary
 
 # 全市場三大法人買賣超的法人名稱歸類
@@ -17,6 +17,7 @@ _TRUST = {"Investment_Trust", "投信"}
 _DEALER = {"Dealer_self", "Dealer_Hedging", "自營商", "自營商(自行買賣)", "自營商(避險)"}
 
 
+@safe(dict)
 def index_status() -> dict:
     """加權指數技術狀態 + 偏多/震盪/偏空研判(結合外資期貨多空)。"""
     df = fetch("^TWII", period="1y")
@@ -69,6 +70,7 @@ def index_status() -> dict:
     }
 
 
+@safe(pd.DataFrame)
 def inst_total(days: int = 30) -> pd.DataFrame:
     """全市場三大法人買賣超(淨額,億)。回傳外資/投信/自營商/合計 趨勢。"""
     start = (_dt.date.today() - _dt.timedelta(days=days * 2)).isoformat()

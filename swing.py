@@ -181,18 +181,20 @@ def _backtest_triggers(e: pd.DataFrame, trig: np.ndarray, hold_days: int,
         if not trig[i]:
             i += 1
             continue
+        if i + 2 > n - 1:
+            break
         entry = close[i + 1]
-        exit_idx = min(i + hold_days, n - 1)
+        exit_idx = min(i + 1 + hold_days, n - 1)
         exit_price = None
         reason = "持有到期"
-        for j in range(i + 2, min(i + 1 + hold_days, n)):
+        for j in range(i + 2, exit_idx + 1):
             if stop_loss is not None and low[j] <= entry * (1 - stop_loss / 100):
                 exit_price = entry * (1 - stop_loss / 100); reason = "停損"; exit_idx = j; break
             if take_profit is not None and high[j] >= entry * (1 + take_profit / 100):
                 exit_price = entry * (1 + take_profit / 100); reason = "停利"; exit_idx = j; break
         if exit_price is None:
             exit_price = close[exit_idx]
-        net = (exit_price / entry) * (1 - fee) * (1 - fee - tax) - 1
+        net = (exit_price * (1 - fee - tax)) / (entry * (1 + fee)) - 1
         trades.append({"進場日": str(dates[i + 1].date()), "進場價": round(float(entry), 2),
                        "出場日": str(dates[exit_idx].date()), "出場價": round(float(exit_price), 2),
                        "報酬%": round(net * 100, 2), "出場原因": reason})

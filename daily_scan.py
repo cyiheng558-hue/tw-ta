@@ -16,8 +16,8 @@
 報告會存到 reports\\YYYY-MM-DD.txt。
 """
 import os
-import datetime as _dt
 
+from tw_time import taipei_today
 from data import fetch_many
 from indicators import enrich
 from signals import scan_one
@@ -45,7 +45,7 @@ def load_watchlist():
 def build_report() -> str:
     codes = load_watchlist()
     names = load_stock_names()
-    today = _dt.date.today().isoformat()
+    today = taipei_today().isoformat()
 
     # 短線:用 6 個月資料掃當日訊號
     data = fetch_many(codes, period="6mo")
@@ -96,11 +96,14 @@ def build_report() -> str:
 def main():
     report = build_report()
     print(report)
-    today = _dt.date.today().isoformat()
-    path = os.path.join(REPORT_DIR, f"{today}.txt")
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(report)
-    print(f"\n報告已存:{path}")
+    today = taipei_today().isoformat()
+    try:
+        path = os.path.join(REPORT_DIR, f"{today}.txt")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(report)
+        print(f"\n報告已存:{path}")
+    except OSError as e:
+        print(f"\n[警告] 報告寫檔失敗(可能環境唯讀):{e}")
     if email_configured():
         send_email(f"台股每日訊號 {today}", report)
     else:

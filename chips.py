@@ -10,7 +10,7 @@ FinMind 免 token 也能用,但有流量限制(約每小時數百次);
 import datetime as _dt
 import pandas as pd
 
-from finmind import fm_get
+from finmind import fm_get, safe
 
 # FinMind 的法人名稱 -> 中文歸類
 _FOREIGN = {"Foreign_Investor", "Foreign_Dealer_Self"}
@@ -18,6 +18,7 @@ _TRUST = {"Investment_Trust"}
 _DEALER = {"Dealer_self", "Dealer_Hedging"}
 
 
+@safe(pd.DataFrame)
 def fetch_institutional(code: str, days: int = 60) -> pd.DataFrame:
     """抓近 days 天三大法人買賣超,回傳以日期為索引的 DataFrame。
 
@@ -46,6 +47,7 @@ def fetch_institutional(code: str, days: int = 60) -> pd.DataFrame:
     return out.round(0)
 
 
+@safe(dict)
 def chip_summary(code: str, days: int = 5) -> dict:
     """近 days 日法人動向摘要,給掃描表用。
 
@@ -72,6 +74,7 @@ def chip_summary(code: str, days: int = 5) -> dict:
     }
 
 
+@safe(pd.DataFrame)
 def cumulative_net(code: str, days: int = 60) -> pd.DataFrame:
     """三大法人合計的累計買賣超(張),看波段籌碼方向(持續流入/流出)。"""
     df = fetch_institutional(code, days=days)
@@ -81,6 +84,7 @@ def cumulative_net(code: str, days: int = 60) -> pd.DataFrame:
     return out
 
 
+@safe(pd.DataFrame)
 def foreign_holding(code: str, days: int = 60) -> pd.DataFrame:
     """外資持股比率(%)趨勢。"""
     start = (_dt.date.today() - _dt.timedelta(days=days * 2)).isoformat()
@@ -93,6 +97,7 @@ def foreign_holding(code: str, days: int = 60) -> pd.DataFrame:
     return out.sort_index().dropna().tail(days)
 
 
+@safe(dict)
 def margin_short_ratio(code: str) -> dict:
     """券資比(%)= 融券餘額 / 融資餘額 * 100。比率高代表空方相對積極。"""
     start = (_dt.date.today() - _dt.timedelta(days=20)).isoformat()

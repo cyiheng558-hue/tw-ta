@@ -14,8 +14,25 @@ import os
 import json
 import time
 import hashlib
-import datetime as _dt
+import functools
 import requests
+
+from tw_time import taipei_today
+
+
+def safe(default):
+    """裝飾器:函式內出例外(如 FinMind 改欄位 KeyError)時,印警告並回傳預設值,
+    避免單一資料異常讓整個頁面/掃描崩潰。default 可為值或回傳值的 callable。"""
+    def deco(fn):
+        @functools.wraps(fn)
+        def wrap(*a, **k):
+            try:
+                return fn(*a, **k)
+            except Exception as e:
+                print(f"  [{fn.__name__}] 資料異常,降級:{e}")
+                return default() if callable(default) else default
+        return wrap
+    return deco
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CACHE_DIR = os.path.join(HERE, "cache", "finmind")
@@ -32,12 +49,12 @@ def _code_only(code):
 def _cache_path(params: dict) -> str:
     raw = json.dumps(params, sort_keys=True, ensure_ascii=False)
     h = hashlib.md5(raw.encode("utf-8")).hexdigest()[:16]
-    today = _dt.date.today().isoformat()
+    today = taipei_today().isoformat()
     return os.path.join(CACHE_DIR, f"{today}_{h}.json")
 
 
 def _clean_old():
-    today = _dt.date.today().isoformat()
+    today = taipei_today().isoformat()
     try:
         for fn in os.listdir(CACHE_DIR):
             if fn.endswith(".json") and not fn.startswith(today):
@@ -72,16 +89,24 @@ def fm_get(dataset: str, data_id=None, start_date=None, timeout: int = 20,
     if token:
         req["token"] = token
 
-    # 自動重試:網路錯誤或伺服器忙碌時最多試 3 次(間隔遞增)
+    # 自動重試:只對網路逾時/連線錯誤/伺服器忙碌(5xx)/限流(429)重試;4xx 直接放棄
     j = None
     for attempt in range(3):
         try:
             r = requests.get(API, params=req, timeout=timeout)
-            j = r.json()
-            break
+            if r.status_code == 200:
+                j = r.json()
+                break
+            if r.status_code in (429, 500, 502, 503, 504) and attempt < 2:
+                wait = r.headers.get("Retry-After")
+                time.sleep(float(wait) if wait and wait.isdigit() else 1.0 + attempt)
+                continue
+            if r.status_code in (402, 403):  # 權限/付費層級
+                print(f"  [FinMind] {dataset} 需更高權限(HTTP {r.status_code},建議設 FINMIND_TOKEN)")
+            return []
         except Exception as e:
             if attempt < 2:
-                time.sleep(1.0 + attempt)  # 1s, 2s
+                time.sleep(1.0 + attempt)
                 continue
             print(f"  [FinMind] {dataset} {cid} 連線失敗(已重試):{e}")
             return []

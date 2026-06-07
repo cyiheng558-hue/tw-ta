@@ -86,8 +86,8 @@ def broker_branch(code: str, days: int = 1, top: int = 15) -> dict:
             "均價": float(avg) if avg else None,
         })
     df = pd.DataFrame(recs).drop_duplicates(subset=["券商"])
-    buy_rank = df.sort_values("買超(張)", ascending=False).head(top).reset_index(drop=True)
-    sell_rank = df.sort_values("買超(張)").head(top).reset_index(drop=True)
+    buy_rank = df[df["買超(張)"] > 0].sort_values("買超(張)", ascending=False).head(top).reset_index(drop=True)
+    sell_rank = df[df["買超(張)"] < 0].sort_values("買超(張)").head(top).reset_index(drop=True)
     return {
         "買超": buy_rank,
         "賣超": sell_rank,

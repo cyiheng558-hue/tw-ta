@@ -31,8 +31,9 @@ def kd(df: pd.DataFrame, n: int = 9, k_smooth: int = 3, d_smooth: int = 3) -> pd
     """
     low_n = df["Low"].rolling(window=n, min_periods=n).min()
     high_n = df["High"].rolling(window=n, min_periods=n).max()
-    rsv = (df["Close"] - low_n) / (high_n - low_n) * 100
-    rsv = rsv.fillna(50)
+    rng = (high_n - low_n).replace(0, pd.NA)  # 高=低(鎖死)時避免除以零
+    rsv = (df["Close"] - low_n) / rng * 100
+    rsv = rsv.replace([float("inf"), float("-inf")], pd.NA).fillna(50)
     # 台股 KD 用平滑遞迴(等同 EMA,alpha=1/平滑期)
     k = rsv.ewm(alpha=1 / k_smooth, adjust=False).mean()
     d = k.ewm(alpha=1 / d_smooth, adjust=False).mean()
@@ -55,7 +56,10 @@ def rsi(series: pd.Series, n: int = 14) -> pd.Series:
     avg_gain = gain.ewm(alpha=1 / n, adjust=False).mean()
     avg_loss = loss.ewm(alpha=1 / n, adjust=False).mean()
     rs = avg_gain / avg_loss
-    return 100 - (100 / (1 + rs))
+    out = 100 - (100 / (1 + rs))
+    # 全無下跌(avg_loss=0)→RSI=100;完全無波動(0/0=NaN)→中性50
+    out = out.mask(avg_loss == 0, 100.0)
+    return out.fillna(50)
 
 
 def atr(df: pd.DataFrame, n: int = 14) -> pd.Series:

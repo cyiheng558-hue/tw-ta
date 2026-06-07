@@ -9,7 +9,7 @@ import json
 import datetime as _dt
 import pandas as pd
 
-from finmind import fm_get
+from finmind import fm_get, safe
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CACHE_DIR = os.path.join(HERE, "cache")
@@ -82,6 +82,7 @@ def load_industry() -> dict:
 
 
 # ---------------- 本益比 / 殖利率 / PBR ----------------
+@safe(dict)
 def valuation(code: str) -> dict:
     """最新本益比、殖利率(%)、股價淨值比。抓不到回傳空 dict。"""
     start = (_dt.date.today() - _dt.timedelta(days=15)).isoformat()
@@ -98,6 +99,7 @@ def valuation(code: str) -> dict:
 
 
 # ---------------- 月營收年增率 ----------------
+@safe(dict)
 def revenue_yoy(code: str) -> dict:
     """最新月營收與年增率(%)。需比較去年同月,故抓近 ~14 個月。"""
     start = (_dt.date.today() - _dt.timedelta(days=430)).isoformat()
@@ -123,6 +125,7 @@ def revenue_yoy(code: str) -> dict:
 
 
 # ---------------- 融資融券 ----------------
+@safe(pd.DataFrame)
 def margin_short(code: str, days: int = 20) -> pd.DataFrame:
     """近 days 日融資/融券餘額(張)。回傳含 融資餘額、融券餘額 的 DataFrame。"""
     start = (_dt.date.today() - _dt.timedelta(days=days * 2)).isoformat()
@@ -138,6 +141,7 @@ def margin_short(code: str, days: int = 20) -> pd.DataFrame:
     return out.sort_index().tail(days)
 
 
+@safe(dict)
 def margin_summary(code: str) -> dict:
     """融資近 5 日增減(張):正=散戶加碼(籌碼偏亂),負=融資減少。"""
     df = margin_short(code, days=10)
@@ -152,6 +156,7 @@ def margin_summary(code: str) -> dict:
 
 
 # ---------------- 財報:EPS / 毛利率 / 營益率 / 淨利率 / ROE ----------------
+@safe(dict)
 def financials(code: str) -> dict:
     """最新一季獲利能力 + 近四季(TTM)EPS/ROE。抓不到回傳空 dict。"""
     start = (_dt.date.today() - _dt.timedelta(days=620)).isoformat()  # 約 5 季
@@ -179,16 +184,15 @@ def financials(code: str) -> dict:
         "淨利率%": pct("IncomeAfterTaxes", "Revenue"),
         "單季EPS": round(float(last["EPS"]), 2) if "EPS" in last and pd.notna(last.get("EPS")) else None,
     }
-    # 近四季 EPS 合計(TTM)
-    if "EPS" in piv.columns:
-        eps_ttm = piv["EPS"].dropna().tail(4).sum()
-        out["近四季EPS"] = round(float(eps_ttm), 2)
+    # 近四季 EPS 合計(TTM):取最近 4 個連續季度(piv 已依日期排序)
+    if "EPS" in piv.columns and piv["EPS"].tail(4).notna().sum() >= 1:
+        out["近四季EPS"] = round(float(piv["EPS"].tail(4).sum()), 2)
     # ROE(TTM):近四季稅後淨利 / 最新股東權益
     bs = _get("TaiwanStockBalanceSheet", code, start)
     if bs and "IncomeAfterTaxes" in piv.columns:
         bdf = pd.DataFrame(bs)
         eq = bdf[bdf["type"] == "Equity"].sort_values("date")
-        ni_ttm = piv["IncomeAfterTaxes"].dropna().tail(4).sum()
+        ni_ttm = piv["IncomeAfterTaxes"].tail(4).sum()
         if not eq.empty:
             equity = float(eq.iloc[-1]["value"])
             if equity:
@@ -203,6 +207,7 @@ def _quarter_label(date_str: str) -> str:
     return f"{y}Q{(m + 2) // 3}"
 
 
+@safe(dict)
 def financials_history(code: str, n_quarters: int = 12) -> dict:
     """季/年的獲利能力趨勢。回傳 {'季': DataFrame, '年': DataFrame}。
 
@@ -256,6 +261,7 @@ def financials_history(code: str, n_quarters: int = 12) -> dict:
 
 
 # ---------------- 配息歷史 ----------------
+@safe(dict)
 def dividend_history(code: str) -> dict:
     """近年現金股利與連續配息年數。"""
     data = _get("TaiwanStockDividend", code, start="2014-01-01")
@@ -265,8 +271,9 @@ def dividend_history(code: str) -> dict:
     # 以股利所屬年度彙總現金股利(同年可能分次)
     df["cash"] = pd.to_numeric(df.get("CashEarningsDistribution", 0), errors="coerce").fillna(0) \
         + pd.to_numeric(df.get("CashStatutorySurplus", 0), errors="coerce").fillna(0)
-    # year 形如 "114年第4季" 或 "2025" ,取前面數字當年度群組
+    # year 形如 "114年第4季"(民國)或 "2025"(西元),統一轉西元再群組
     df["yr"] = df["year"].astype(str).str.extract(r"(\d+)").astype(float)
+    df["yr"] = df["yr"].apply(lambda y: y + 1911 if y < 1911 else y)  # 民國→西元
     by_year = df.groupby("yr")["cash"].sum().sort_index()
     by_year = by_year[by_year > 0]
     if by_year.empty:
@@ -284,6 +291,7 @@ def dividend_history(code: str) -> dict:
 
 
 # ---------------- 月營收趨勢(近12月) ----------------
+@safe(pd.DataFrame)
 def revenue_trend(code: str) -> pd.DataFrame:
     """近 ~13 個月營收 + 年增率,回傳 DataFrame(月份索引)。"""
     start = (_dt.date.today() - _dt.timedelta(days=800)).isoformat()
@@ -291,9 +299,19 @@ def revenue_trend(code: str) -> pd.DataFrame:
     if not data:
         return pd.DataFrame()
     df = pd.DataFrame(data).sort_values(["revenue_year", "revenue_month"])
-    df["月份"] = df["revenue_year"].astype(str) + "/" + df["revenue_month"].astype(int).map(lambda m: f"{m:02d}")
-    df["營收億"] = df["revenue"] / 1e8
-    df["年增率%"] = df.groupby("revenue_month")["revenue"].pct_change() * 100  # 同月年比
+    df["revenue_year"] = df["revenue_year"].astype(int)
+    df["revenue_month"] = df["revenue_month"].astype(int)
+    df["月份"] = df["revenue_year"].astype(str) + "/" + df["revenue_month"].map(lambda m: f"{m:02d}")
+    df["營收億"] = pd.to_numeric(df["revenue"], errors="coerce") / 1e8
+    # 年增率:用「去年同月」明確對齊(避免同月多筆/缺漏時比錯)
+    prev = df.set_index(["revenue_year", "revenue_month"])["revenue"]
+    def _yoy(row):
+        key = (row["revenue_year"] - 1, row["revenue_month"])
+        if key in prev.index:
+            base = float(prev.loc[key])
+            return (float(row["revenue"]) - base) / base * 100 if base else None
+        return None
+    df["年增率%"] = df.apply(_yoy, axis=1)
     out = df[["月份", "營收億", "年增率%"]].tail(13).copy()
     out["營收億"] = out["營收億"].round(1)
     out["年增率%"] = out["年增率%"].round(1)
@@ -301,6 +319,7 @@ def revenue_trend(code: str) -> pd.DataFrame:
 
 
 # ---------------- 本益比評價(歷史 percentile) ----------------
+@safe(dict)
 def pe_valuation(code: str) -> dict:
     """用近 ~3 年本益比算現在落在哪個區間(percentile),判斷相對貴/便宜。"""
     start = (_dt.date.today() - _dt.timedelta(days=1100)).isoformat()

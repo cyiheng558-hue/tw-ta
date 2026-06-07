@@ -9,10 +9,11 @@
 """
 import os
 import time
-import datetime as _dt
 
 import pandas as pd
 import yfinance as yf
+
+from tw_time import taipei_today
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CACHE_DIR = os.path.join(HERE, "cache")
@@ -29,13 +30,13 @@ def to_yahoo_symbol(code: str) -> str:
 
 def _cache_path(code: str, period: str) -> str:
     safe = code.replace(".", "_")
-    today = _dt.date.today().isoformat()
+    today = taipei_today().isoformat()
     return os.path.join(CACHE_DIR, f"{safe}_{period}_{today}.pkl")
 
 
 def _clean_old_cache(keep_today: bool = True):
     """刪掉非今天的舊快取,避免目錄無限長大。"""
-    today = _dt.date.today().isoformat()
+    today = taipei_today().isoformat()
     for fn in os.listdir(CACHE_DIR):
         if fn.endswith(".pkl") and today not in fn:
             try:

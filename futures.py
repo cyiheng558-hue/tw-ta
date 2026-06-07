@@ -8,11 +8,12 @@
 import datetime as _dt
 import pandas as pd
 
-from finmind import fm_get
+from finmind import fm_get, safe
 
 _ORDER = ["外資", "投信", "自營商"]
 
 
+@safe(pd.DataFrame)
 def futures_net_oi(days: int = 40) -> pd.DataFrame:
     """近 days 日三大法人台指期淨未平倉口數。
 
@@ -37,6 +38,7 @@ def futures_net_oi(days: int = 40) -> pd.DataFrame:
     return piv.sort_index().tail(days).round(0)
 
 
+@safe(dict)
 def summary(days: int = 40) -> dict:
     """最新一日的淨未平倉口數摘要 + 外資較前一日增減。"""
     df = futures_net_oi(days=days)

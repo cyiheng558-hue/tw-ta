@@ -61,13 +61,16 @@ def backtest_signal(df: pd.DataFrame, signal_key: str, hold_days: int = 5,
             i += 1
             continue
 
+        if i + 2 > n - 1:        # 進場後沒有任何後續 K 棒可持有,跳過假交易
+            break
         entry_price = closes[i + 1]  # 隔日收盤進場
         entry_date = dates[i + 1]
         exit_price = None
         exit_reason = "持有到期"
-        exit_idx = min(i + hold_days, n - 1)
+        # 持有 hold_days 個交易日:出場在 i+1+hold_days(含當根盤中可觸發停損停利)
+        exit_idx = min(i + 1 + hold_days, n - 1)
 
-        for j in range(i + 2, min(i + 1 + hold_days, n)):
+        for j in range(i + 2, exit_idx + 1):
             if stop_loss is not None and lows[j] <= entry_price * (1 - stop_loss / 100):
                 exit_price = entry_price * (1 - stop_loss / 100)
                 exit_reason = "停損"
@@ -81,9 +84,8 @@ def backtest_signal(df: pd.DataFrame, signal_key: str, hold_days: int = 5,
         if exit_price is None:
             exit_price = closes[exit_idx]
 
-        # 淨報酬(扣成本):買付手續費、賣付手續費+稅
-        gross = exit_price / entry_price
-        net = gross * (1 - fee) * (1 - fee - tax) - 1
+        # 淨報酬:買進成本含手續費,賣出市值扣手續費+證交稅
+        net = (exit_price * (1 - fee - tax)) / (entry_price * (1 + fee)) - 1
         trades.append({
             "進場日": str(entry_date.date()), "進場價": round(float(entry_price), 2),
             "出場日": str(dates[exit_idx].date()), "出場價": round(float(exit_price), 2),

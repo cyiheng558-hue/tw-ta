@@ -9,6 +9,7 @@
 """
 import os
 import io
+import hmac
 import datetime as _dt
 
 import pandas as pd
@@ -68,25 +69,34 @@ def _app_password():
 APP_PASSWORD = _app_password()
 
 
+_MAX_TRIES = 5  # 同一工作階段連續錯誤上限,防暴力嘗試
+
+
 def require_password():
-    """未通過驗證前,只顯示輸入框並停住,不執行後面的內容。"""
+    """未通過驗證前只顯示輸入框並停住;用安全比對 + 嘗試次數鎖定。"""
     if st.session_state.get("auth_ok"):
         return
 
     def _check():
-        if st.session_state.get("pwd_input", "") == APP_PASSWORD:
+        entered = st.session_state.get("pwd_input", "")
+        st.session_state["pwd_input"] = ""  # 不保留輸入內容
+        if hmac.compare_digest(str(entered), str(APP_PASSWORD)):
             st.session_state["auth_ok"] = True
             st.session_state["pwd_bad"] = False
         else:
             st.session_state["auth_ok"] = False
             st.session_state["pwd_bad"] = True
-        st.session_state["pwd_input"] = ""  # 不保留輸入內容
+            st.session_state["pwd_tries"] = st.session_state.get("pwd_tries", 0) + 1
 
     st.title("📈 台股技術分析")
+    tries = st.session_state.get("pwd_tries", 0)
+    if tries >= _MAX_TRIES:
+        st.error(f"錯誤次數過多(已 {tries} 次),請重新整理頁面再試。")
+        st.stop()
     st.caption("本站需要驗證碼才能使用,請向提供者索取。")
     st.text_input("請輸入驗證碼", type="password", key="pwd_input", on_change=_check)
     if st.session_state.get("pwd_bad"):
-        st.error("驗證碼錯誤,請再試一次。")
+        st.error(f"驗證碼錯誤,請再試一次。(剩 {_MAX_TRIES - tries} 次)")
     st.stop()
 
 
@@ -129,12 +139,12 @@ CHART_CONFIG = dict(PLOTLY_CONFIG, modeBarButtonsToAdd=[
 
 
 # ===================== 快取層 =====================
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)  # 日線一天才更新,快取 1 小時
 def c_fetch(code, period):
     return fetch(code, period=period)
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def c_fetch_many(codes, period):
     return fetch_many(list(codes), period=period)
 
@@ -239,9 +249,7 @@ def c_quote_off(code):
     return rt_quote([code])
 
 
-@st.fragment(run_every="3s")
-def live_quote_panel(code):
-    """即時報價面板:交易時間每 3 秒自動更新(盤後讀快取,不重複打)。"""
+def _render_quote(code):
     df = rt_quote([code]) if is_market_hours() else c_quote_off(code)
     if df.empty:
         st.caption("📡 即時報價:暫時無法取得(盤後/假日,或來源限流/雲端被擋)。")
@@ -258,6 +266,20 @@ def live_quote_panel(code):
     q[5].metric("狀態", "🟢 交易中" if live else "盤後")
     st.caption(f"資料時間 {r.get('日期','')} {r.get('時間','')}｜"
                f"{'交易時間每3秒自動更新(MIS約3~5秒延遲)' if live else '非交易時間,顯示最後成交'}｜來源:證交所 MIS")
+
+
+@st.fragment(run_every="3s")
+def _live_quote_auto(code):
+    _render_quote(code)
+
+
+def live_quote_panel(code):
+    """即時報價:勾選時交易時間每3秒自動更新;取消勾選則只抓一次(不持續打 MIS)。"""
+    auto = st.checkbox("📡 即時自動更新(每3秒)", value=True, key="rt_auto")
+    if auto:
+        _live_quote_auto(code)
+    else:
+        _render_quote(code)
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -994,8 +1016,7 @@ with tab_swing:
                          width="stretch", hide_index=True)
             wbench = c_fetch("0050", "5y")
             wdf5 = c_fetch(swing_code, "5y")
-            from backtest import benchmark_return as _br
-            wbr = _br(wdf5, wbench) if not wdf5.empty else None
+            wbr = benchmark_return(wdf5, wbench) if not wdf5.empty else None
             if wbr is not None:
                 st.caption(f"同期(5年)0050 買進持有報酬:**{wbr:+.1f}%**(比較基準)")
             st.caption("中線訊號觸發次數通常較少,數字代表性有限;波段操作仍須嚴設停損。")
