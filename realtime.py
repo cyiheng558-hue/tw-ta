@@ -27,25 +27,37 @@ def _num(x):
         return None
 
 
-def quote(codes) -> pd.DataFrame:
-    """抓即時報價。回傳:代號/名稱/成交/漲跌/漲跌%/開/高/低/累積量/時間。"""
-    if isinstance(codes, str):
-        codes = [codes]
-    cids = [_code_only(c) for c in codes]
-    # 不知上市或上櫃,兩種都查,有資料的才回
+def _quote_chunk(cids) -> list:
+    """抓一批(不超過 MIS 單次上限)的即時報價,回傳 msgArray。"""
     ex_ch = "|".join([f"tse_{c}.tw|otc_{c}.tw" for c in cids])
     try:
         r = requests.get(_BASE, params={"ex_ch": ex_ch, "json": "1", "delay": "0"},
                          headers=_HDR, timeout=10)
+        if r.status_code != 200:
+            return []
         j = r.json()
     except Exception as e:
         print(f"  [即時] 抓取失敗:{e}")
-        return pd.DataFrame()
+        return []
     if j.get("rtcode") != "0000" or not j.get("msgArray"):
+        return []
+    return j["msgArray"]
+
+
+def quote(codes) -> pd.DataFrame:
+    """抓即時報價(自動分批)。回傳:代號/名稱/成交/漲跌/漲跌%/開/高/低/累積量/時間。"""
+    if isinstance(codes, str):
+        codes = [codes]
+    cids = [_code_only(c) for c in codes]
+    # 每批最多 25 檔(× tse/otc = 50 個 ex_ch),分批查避免超過 MIS 單次上限
+    msg = []
+    for k in range(0, len(cids), 25):
+        msg.extend(_quote_chunk(cids[k:k + 25]))
+    if not msg:
         return pd.DataFrame()
 
     rows = []
-    for m in j["msgArray"]:
+    for m in msg:
         if not m.get("c"):             # 略過對方交易所回傳的空白項
             continue
         y = _num(m.get("y"))           # 昨收

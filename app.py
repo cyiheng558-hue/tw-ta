@@ -138,9 +138,31 @@ if st.checkbox("顯示大盤多空(三大法人台指期淨未平倉口數)", ke
                                  legend=dict(orientation="h", y=1.15))
             st.plotly_chart(foifig, width="stretch", config=PLOTLY_CONFIG)
 
-tab_scan, tab_screen, tab_stock, tab_swing, tab_cmp, tab_market, tab_watch = st.tabs(
-    ["🔍 清單掃描", "🎯 條件篩選", "📊 個股分析(短線)", "📈 中線分析", "🆚 比較",
-     "🌡️ 盤勢/資金", "⚙️ 自選股管理"])
+(tab_day, tab_scan, tab_screen, tab_stock, tab_swing, tab_cmp,
+ tab_market, tab_watch) = st.tabs(
+    ["⚡ 當沖看盤", "🔍 清單掃描", "🎯 條件篩選", "📊 個股分析(短線)", "📈 中線分析",
+     "🆚 比較", "🌡️ 盤勢/資金", "⚙️ 自選股管理"])
+
+
+# ============================================================
+# 分頁:當沖看盤
+# ============================================================
+with tab_day:
+    st.caption("即時看盤:自選股即時報價看板 + 分鐘K線。⚠ MIS 約3~5秒延遲、分鐘K約15分延遲,"
+               "非毫秒級;真當沖逐筆請用券商API(本機)。")
+    names = c_names()
+    wl = load_watchlist()
+    st.markdown("**📋 即時報價看板**(自選股,依漲跌%排序)")
+    daytrade_board(wl, names)
+
+    st.divider()
+    d1, d2 = st.columns([1, 1])
+    dcode = d1.text_input("分鐘K個股代號", value=st.session_state.get("st_code", "2330"),
+                          key="day_code").strip()
+    div = d2.radio("K線週期", ["1m", "5m"], index=1, horizontal=True, key="day_iv")
+    if dcode:
+        st.markdown(f"**📈 {dcode} {name_of(dcode, names)} 當日分鐘走勢**")
+        intraday_chart(dcode, div)
 
 
 # ============================================================

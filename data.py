@@ -80,6 +80,21 @@ def fetch(code: str, period: str = "6mo", interval: str = "1d",
     return df
 
 
+def fetch_intraday(code: str, interval: str = "5m") -> pd.DataFrame:
+    """抓當日盤中分鐘K(1m/5m)。yfinance 延遲約15分鐘,當沖時機請搭配即時報價。"""
+    sym = to_yahoo_symbol(code)
+    try:
+        df = yf.download(sym, period="1d", interval=interval,
+                         progress=False, auto_adjust=True, threads=False)
+    except Exception:
+        return pd.DataFrame()
+    if df is None or df.empty:
+        return pd.DataFrame()
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    return df[["Open", "High", "Low", "Close", "Volume"]].dropna()
+
+
 def fetch_many(codes, period: str = "6mo", use_cache: bool = True,
                batch: int = 40, progress_cb=None) -> dict:
     """批次抓多檔(一次請求帶多個代號,較不會被 yahoo 限流)。

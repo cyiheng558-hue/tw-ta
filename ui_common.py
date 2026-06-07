@@ -10,8 +10,9 @@ import io
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
-from data import fetch, fetch_many
+from data import fetch, fetch_many, fetch_intraday
 from indicators import enrich
 from fundamentals import (load_stock_names, load_industry, valuation, revenue_yoy,
                           margin_short, financials, dividend_history, revenue_trend,
@@ -39,7 +40,7 @@ __all__ = [
     "c_sector", "c_fut_oi", "c_fut_summary", "c_index_status", "c_inst_total", "c_score",
     "load_watchlist", "save_watchlist", "to_excel_bytes", "date_breaks",
     "cn_ohlc_hover", "jump_to_stock", "styled_table", "color_updown",
-    "live_quote_panel", "hbar_sector",
+    "live_quote_panel", "hbar_sector", "daytrade_board", "intraday_chart",
 ]
 
 # 三大法人配色(集中常數,避免各處重複硬寫)
@@ -348,3 +349,69 @@ def hbar_sector(df, title=""):
                       margin=dict(l=10, r=10, t=40 if title else 20, b=10),
                       yaxis=dict(autorange="reversed"))
     return fig
+
+
+# ===================== 當沖看盤 =====================
+@st.cache_data(ttl=60, show_spinner=False)
+def c_intraday(code, interval):
+    return fetch_intraday(code, interval)
+
+
+def _board_render(codes, names):
+    df = rt_quote(codes)
+    if df.empty:
+        st.info("即時報價暫時無法取得(盤後/假日,或來源限流/雲端被擋)。")
+        return
+    df = df.copy()
+    df["名稱"] = df["代號"].map(lambda c: names.get(str(c), ""))
+    df = df.sort_values("漲跌%", ascending=False)
+    cols = ["代號", "名稱", "成交", "漲跌%", "累積量(張)", "開", "高", "低"]
+    st.dataframe(styled_table(df[cols], ["漲跌%"]),
+                 width="stretch", hide_index=True, height=min(38 * len(df) + 40, 720))
+    t = df.iloc[0].get("時間", "")
+    live = is_market_hours()
+    st.caption(f"資料時間 {t}｜{'交易中,每5秒自動更新' if live else '盤後/最後成交'}｜"
+               f"依漲跌%排序｜來源:證交所 MIS")
+
+
+@st.fragment(run_every="5s")
+def _board_auto(codes, names):
+    _board_render(codes, names)
+
+
+def daytrade_board(codes, names):
+    """整份清單即時報價看板:交易時間每5秒自動更新、依漲跌排序。"""
+    auto = st.checkbox("⚡ 自動更新(每5秒)", value=True, key="board_auto")
+    if auto and is_market_hours():
+        _board_auto(codes, names)
+    else:
+        _board_render(codes, names)
+
+
+def intraday_chart(code, interval="5m"):
+    """當日分鐘K線 + VWAP(當沖均價參考)+ 量。"""
+    df = c_intraday(code, interval)
+    if df.empty:
+        st.caption("分鐘K資料暫時無法取得(盤後初期、無資料或雲端被擋)。")
+        return
+    tp = (df["High"] + df["Low"] + df["Close"]) / 3
+    vwap = (tp * df["Volume"]).cumsum() / df["Volume"].cumsum().replace(0, pd.NA)
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                        row_heights=[0.74, 0.26], vertical_spacing=0.03,
+                        subplot_titles=(f"{interval} 分鐘K + VWAP", "成交量"))
+    fig.add_trace(go.Candlestick(x=df.index, open=df["Open"], high=df["High"],
+                  low=df["Low"], close=df["Close"], name="分鐘K",
+                  increasing_line_color="red", decreasing_line_color="green"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=vwap, name="VWAP",
+                  line=dict(color="purple", width=1.6)), row=1, col=1)
+    fig.add_hline(y=float(df["Open"].iloc[0]), line_dash="dot", line_color="gray",
+                  row=1, col=1, annotation_text="開盤", annotation_position="right",
+                  annotation_font_size=9)
+    vcol = ["red" if df["Close"].iloc[i] >= df["Open"].iloc[i] else "green" for i in range(len(df))]
+    fig.add_trace(go.Bar(x=df.index, y=df["Volume"], name="量", marker_color=vcol), row=2, col=1)
+    fig.update_layout(height=500, xaxis_rangeslider_visible=False,
+                      margin=dict(l=10, r=10, t=30, b=10),
+                      legend=dict(orientation="h", y=1.06))
+    st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG)
+    st.caption("分鐘K來自 yfinance(約15分鐘延遲);**紫線=VWAP**(成交量加權均價,當沖常用:價在VWAP上偏多、下偏空)。"
+               "盤中即時價請看上方看板。")
