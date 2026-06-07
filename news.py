@@ -33,13 +33,16 @@ def _fmt_time(pub: str) -> str:
         return pub[:16]
 
 
-def latest_news(code: str, limit: int = 25, names: dict = None) -> pd.DataFrame:
-    """抓個股最新新聞,回傳 日期/來源/標題/連結 DataFrame。"""
+def latest_news(code: str, extra: str = "", limit: int = 25, names: dict = None) -> pd.DataFrame:
+    """抓個股最新新聞,回傳 日期/來源/標題/連結 DataFrame。
+
+    extra:額外關鍵字(會加進搜尋,例如「法說 訂單 ADR」),可留空。
+    """
     cid = _code_only(code)
     if names is None:
         names = load_stock_names()
     name = names.get(cid, cid)
-    query = f"{name} 股"
+    query = f"{name} 股 {extra}".strip() if extra else f"{name} 股"
     params = {"q": query, "hl": "zh-TW", "gl": "TW", "ceid": "TW:zh-Hant"}
     try:
         r = requests.get(_RSS, params=params, headers=_HDR, timeout=20)

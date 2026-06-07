@@ -222,8 +222,8 @@ def c_margin_ratio(code):
 
 
 @st.cache_data(ttl=900, show_spinner=False)
-def c_news(code):
-    return latest_news(code)
+def c_news(code, extra=""):
+    return latest_news(code, extra=extra)
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -797,16 +797,20 @@ with tab_stock:
 
             # ---------- 新聞 ----------
             elif view == "📰 新聞":
-                news_df = c_news(code)
+                nc1, nc2 = st.columns([1, 1])
+                extra_kw = nc1.text_input("額外關鍵字(選填,空白分隔,如:法說 訂單 ADR)",
+                                          key="news_kw").strip()
+                news_df = c_news(code, extra_kw)
                 if news_df.empty:
-                    st.info("近期無新聞,或 FinMind 流量上限,稍後再試。")
+                    st.info("近期無相關新聞,或來源暫時無法連線,稍後再試。")
                 else:
-                    for _, nrow in news_df.iterrows():
-                        st.markdown(
-                            f"- `{nrow['日期']}` **[{nrow['來源']}]** "
-                            f"[{nrow['標題']}]({nrow['連結']})"
-                        )
-                    st.caption("新聞來源 FinMind,內容僅供參考、非投資建議,請自行查證。")
+                    srcs = sorted([s for s in news_df["來源"].unique() if s])
+                    excl = nc2.multiselect("排除來源(選填)", srcs, key="news_excl")
+                    show = news_df[~news_df["來源"].isin(excl)] if excl else news_df
+                    st.caption(f"共 {len(show)} 則(Google News,即時)。內容僅供參考、非投資建議,請自行查證。")
+                    for _, nrow in show.iterrows():
+                        src = f" **[{nrow['來源']}]**" if nrow["來源"] else ""
+                        st.markdown(f"- `{nrow['日期']}`{src} [{nrow['標題']}]({nrow['連結']})")
 
 
 # ============================================================
