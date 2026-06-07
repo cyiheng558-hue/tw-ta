@@ -156,6 +156,32 @@ with tab_day:
     daytrade_board(wl, names)
 
     st.divider()
+    st.markdown("**🔎 盤中異動掃描**(從股池 universe.txt 找當沖候選:強勢/爆量/創高)")
+    mc1, mc2, mc3, mc4 = st.columns(4)
+    m_up = mc1.checkbox("只看上漲", value=True, key="mv_up")
+    m_ratio = mc2.number_input("量比 ≥", value=1.0, step=0.5, key="mv_ratio")
+    m_pct = mc3.number_input("漲跌% ≥", value=0.0, step=1.0, key="mv_pct")
+    m_sort = mc4.selectbox("排序", ["漲跌%", "量比"], key="mv_sort")
+    if st.button("🔎 掃描盤中異動", type="primary", key="btn_movers"):
+        with st.spinner("即時掃描股池..."):
+            mv = intraday_movers(load_universe(), names)
+        if mv.empty:
+            st.info("即時資料暫時無法取得(盤後/假日或雲端被擋)。")
+        else:
+            if m_up:
+                mv = mv[mv["漲跌%"] >= max(m_pct, 0.01)]
+            elif m_pct:
+                mv = mv[mv["漲跌%"] >= m_pct]
+            if m_ratio:
+                mv = mv[mv["量比"].fillna(0) >= m_ratio]
+            mv = mv.sort_values(m_sort, ascending=False)
+            st.success(f"符合 {len(mv)} 檔。")
+            st.dataframe(styled_table(mv, ["漲跌%"]), width="stretch", hide_index=True,
+                         height=min(38 * len(mv) + 40, 600))
+            st.caption("量比=今日累積量÷近20日均量(>1=量已放大);📈創高/🔴漲停近=盤中異動。"
+                       "選一檔到下方輸入框看分鐘K與五檔。")
+
+    st.divider()
     d1, d2 = st.columns([1, 1])
     dcode = d1.text_input("個股代號(分鐘K + 五檔)", value=st.session_state.get("st_code", "2330"),
                           key="day_code").strip()

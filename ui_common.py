@@ -41,7 +41,7 @@ __all__ = [
     "load_watchlist", "save_watchlist", "to_excel_bytes", "date_breaks",
     "cn_ohlc_hover", "jump_to_stock", "styled_table", "color_updown",
     "live_quote_panel", "hbar_sector", "daytrade_board", "intraday_chart",
-    "orderbook_panel", "daytrade_pnl",
+    "orderbook_panel", "daytrade_pnl", "intraday_movers",
 ]
 
 # 三大法人配色(集中常數,避免各處重複硬寫)
@@ -461,6 +461,46 @@ def orderbook_panel(code):
                  width="stretch", hide_index=True, height=388)
     st.caption(f"資料時間 {d.get('時間','')}｜內外盤比 >1 = 委買較多(買盤積極)、<1 = 委賣較多;"
                "距漲跌停越小越可能鎖死。來源:證交所 MIS。")
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _avg_volume(codes):
+    """各股近20日均量(張),供盤中『量比』用。"""
+    daily = c_fetch_many(tuple(codes), "3mo")
+    out = {}
+    for c, df in daily.items():
+        if len(df) >= 5:
+            out[c] = float(df["Volume"].tail(20).mean()) / 1000.0  # 股 -> 張
+    return out
+
+
+def intraday_movers(codes, names):
+    """盤中異動掃描:回傳含 漲跌%/量比/異動 的即時 DataFrame(從股池找當沖候選)。"""
+    q = rt_quote(list(codes))
+    if q.empty:
+        return pd.DataFrame()
+    avg = _avg_volume(tuple(codes))
+    q = q.copy()
+    q["名稱"] = q["代號"].map(lambda c: names.get(str(c), ""))
+
+    def _ratio(r):
+        a = avg.get(r["代號"])
+        return round(r["累積量(張)"] / a, 2) if a else None
+
+    def _flag(r):
+        f = []
+        if r["成交"] is not None and r["高"] is not None and r["成交"] >= r["高"]:
+            f.append("📈創高")
+        p = r["漲跌%"]
+        if p is not None and p >= 9.5:
+            f.append("🔴漲停近")
+        elif p is not None and p <= -9.5:
+            f.append("🟢跌停近")
+        return " ".join(f)
+
+    q["量比"] = q.apply(_ratio, axis=1)
+    q["異動"] = q.apply(_flag, axis=1)
+    return q[["代號", "名稱", "成交", "漲跌%", "量比", "異動", "累積量(張)", "高", "低"]]
 
 
 def daytrade_pnl():
