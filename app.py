@@ -31,6 +31,7 @@ from score import composite, rank_codes
 from broker import broker_branch
 from sector import sector_strength
 from futures import futures_net_oi, summary as fut_summary
+from market import index_status, inst_total
 from screener import screen, load_universe, DEFAULT_CONDITIONS
 from risk import suggest as risk_suggest
 from backtest import BACKTESTABLE
@@ -247,6 +248,16 @@ def c_fut_summary():
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
+def c_index_status():
+    return index_status()
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def c_inst_total(days):
+    return inst_total(days)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
 def c_score(code, swing_trend):
     return composite(code, e=enrich(fetch(code, period="1y")), swing_trend=swing_trend)
 
@@ -371,8 +382,9 @@ if st.checkbox("顯示大盤多空(三大法人台指期淨未平倉口數)", ke
                                  legend=dict(orientation="h", y=1.15))
             st.plotly_chart(foifig, width="stretch", config=PLOTLY_CONFIG)
 
-tab_scan, tab_screen, tab_stock, tab_swing, tab_cmp, tab_watch = st.tabs(
-    ["🔍 清單掃描", "🎯 條件篩選", "📊 個股分析(短線)", "📈 中線分析", "🆚 比較", "⚙️ 自選股管理"])
+tab_scan, tab_screen, tab_stock, tab_swing, tab_cmp, tab_market, tab_watch = st.tabs(
+    ["🔍 清單掃描", "🎯 條件篩選", "📊 個股分析(短線)", "📈 中線分析", "🆚 比較",
+     "🌡️ 盤勢/資金", "⚙️ 自選股管理"])
 
 
 # ============================================================
@@ -1007,6 +1019,72 @@ with tab_cmp:
                              width="stretch", hide_index=True)
         else:
             st.info("請至少輸入 2 檔代號。")
+
+
+# ============================================================
+# 分頁:盤勢 / 資金
+# ============================================================
+with tab_market:
+    st.caption("大盤技術狀態、全市場法人買賣超、本週資金流入族群。按下方按鈕載入(避免拖慢其他頁)。")
+    if st.button("🔄 載入 / 更新盤勢", type="primary", key="btn_market"):
+        st.session_state["market_loaded"] = True
+        c_index_status.clear()
+        c_inst_total.clear()
+
+    if st.session_state.get("market_loaded"):
+        # 盤勢概觀
+        st.subheader("📊 盤勢概觀")
+        ms = c_index_status()
+        if not ms:
+            st.info("抓不到大盤資料,稍後再試。")
+        else:
+            badge = {"偏多": "🟢 偏多", "偏空": "🔴 偏空", "震盪": "🟡 震盪"}.get(ms["研判"], ms["研判"])
+            mc = st.columns(5)
+            mc[0].metric("加權指數", f"{ms['收盤']:,.0f}", f"{ms['漲跌%']:+.2f}%")
+            mc[1].metric("研判", badge)
+            mc[2].metric("月線 / 季線", f"{ms['月線MA20']:,.0f} / {ms['季線MA60']:,.0f}")
+            mc[3].metric("RSI / KD", f"{ms['RSI']:.0f} / {ms['KD'][0]:.0f}")
+            if ms.get("外資期貨淨口數") is not None:
+                mc[4].metric("外資期貨淨口數", f"{ms['外資期貨淨口數']:+,.0f}")
+            st.caption("研判理由:" + "、".join(ms["理由"]) + "(綜合大盤均線/KD與外資期貨,僅供參考)")
+
+        # 全市場三大法人買賣超
+        it = c_inst_total(30)
+        if not it.empty:
+            itfig = go.Figure()
+            colors = ["#d62728" if v >= 0 else "#2ca02c" for v in it["三大法人合計"]]
+            itfig.add_trace(go.Bar(x=it.index, y=it["三大法人合計"], name="合計", marker_color=colors))
+            for col, color in [("外資", "#d62728"), ("投信", "#1f77b4"), ("自營商", "#2ca02c")]:
+                itfig.add_trace(go.Scatter(x=it.index, y=it[col], name=col, line=dict(width=1, color=color)))
+            itfig.add_hline(y=0, line_dash="dash", line_color="gray")
+            itfig.update_layout(height=320, title="全市場三大法人買賣超(億元)",
+                                margin=dict(l=10, r=10, t=40, b=10),
+                                legend=dict(orientation="h", y=1.15))
+            st.plotly_chart(itfig, width="stretch", config=PLOTLY_CONFIG)
+            last = it.iloc[-1]
+            st.caption(f"最新({it.index[-1]:%m/%d}):外資 {last['外資']:+,.0f} 億、"
+                       f"投信 {last['投信']:+,.0f} 億、合計 {last['三大法人合計']:+,.0f} 億。"
+                       "正=買超、負=賣超。")
+
+        # 本週資金流入族群
+        st.divider()
+        st.subheader("📈 本週資金流入族群(近5交易日類股平均報酬)")
+        sec = c_sector(tuple(load_universe()), 5)
+        if sec.empty:
+            st.info("資料不足。")
+        else:
+            secf = go.Figure()
+            scolors = ["#d62728" if v >= 0 else "#2ca02c" for v in sec["平均報酬%"]]
+            secf.add_trace(go.Bar(x=sec["平均報酬%"], y=sec["產業"], orientation="h",
+                                  marker_color=scolors,
+                                  text=[f"{v:+.1f}%" for v in sec["平均報酬%"]], textposition="outside"))
+            secf.update_layout(height=max(300, 34 * len(sec)),
+                               margin=dict(l=10, r=10, t=20, b=10),
+                               yaxis=dict(autorange="reversed"))
+            st.plotly_chart(secf, width="stretch", config=PLOTLY_CONFIG)
+            st.caption("紅=資金流入(上漲)、綠=流出(下跌);取自股池 universe.txt 各產業近5日平均報酬。")
+    else:
+        st.info("👆 按「載入 / 更新盤勢」開始。")
 
 
 # ============================================================
