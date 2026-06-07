@@ -221,7 +221,7 @@ def c_margin_ratio(code):
     return margin_short_ratio(code)
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)  # 新聞快取 5 分鐘
 def c_news(code, extra=""):
     return latest_news(code, extra=extra)
 
@@ -797,9 +797,13 @@ with tab_stock:
 
             # ---------- 新聞 ----------
             elif view == "📰 新聞":
-                nc1, nc2 = st.columns([1, 1])
+                nc1, nc2, nc3 = st.columns([2, 2, 1])
                 extra_kw = nc1.text_input("額外關鍵字(選填,空白分隔,如:法說 訂單 ADR)",
                                           key="news_kw").strip()
+                nc3.write("")  # 對齊用
+                if nc3.button("🔄 重新整理", key="news_refresh"):
+                    c_news.clear()
+                    st.rerun()
                 news_df = c_news(code, extra_kw)
                 if news_df.empty:
                     st.info("近期無相關新聞,或來源暫時無法連線,稍後再試。")
@@ -807,7 +811,8 @@ with tab_stock:
                     srcs = sorted([s for s in news_df["來源"].unique() if s])
                     excl = nc2.multiselect("排除來源(選填)", srcs, key="news_excl")
                     show = news_df[~news_df["來源"].isin(excl)] if excl else news_df
-                    st.caption(f"共 {len(show)} 則(Google News,即時)。內容僅供參考、非投資建議,請自行查證。")
+                    st.caption(f"共 {len(show)} 則(Google News,快取5分鐘;按🔄可立即更新)。"
+                               "內容僅供參考、非投資建議,請自行查證。")
                     for _, nrow in show.iterrows():
                         src = f" **[{nrow['來源']}]**" if nrow["來源"] else ""
                         st.markdown(f"- `{nrow['日期']}`{src} [{nrow['標題']}]({nrow['連結']})")
