@@ -25,7 +25,7 @@ from broker import broker_branch
 from sector import sector_strength
 from futures import futures_net_oi, summary as fut_summary
 from market import index_status, inst_total
-from realtime import quote as rt_quote, is_market_hours
+from realtime import quote as rt_quote, quote_detail, is_market_hours
 from swing import analyze as swing_analyze, scan_swing, backtest_swing
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -41,6 +41,7 @@ __all__ = [
     "load_watchlist", "save_watchlist", "to_excel_bytes", "date_breaks",
     "cn_ohlc_hover", "jump_to_stock", "styled_table", "color_updown",
     "live_quote_panel", "hbar_sector", "daytrade_board", "intraday_chart",
+    "orderbook_panel", "daytrade_pnl",
 ]
 
 # 三大法人配色(集中常數,避免各處重複硬寫)
@@ -364,8 +365,23 @@ def _board_render(codes, names):
         return
     df = df.copy()
     df["名稱"] = df["代號"].map(lambda c: names.get(str(c), ""))
+
+    def _flag(r):
+        f = []
+        if r["成交"] is not None and r["高"] is not None and r["成交"] >= r["高"]:
+            f.append("📈創高")
+        if r["成交"] is not None and r["低"] is not None and r["成交"] <= r["低"]:
+            f.append("📉創低")
+        p = r["漲跌%"]
+        if p is not None and p >= 9.5:
+            f.append("🔴漲停近")
+        elif p is not None and p <= -9.5:
+            f.append("🟢跌停近")
+        return " ".join(f)
+
+    df["異動"] = df.apply(_flag, axis=1)
     df = df.sort_values("漲跌%", ascending=False)
-    cols = ["代號", "名稱", "成交", "漲跌%", "累積量(張)", "開", "高", "低"]
+    cols = ["代號", "名稱", "成交", "漲跌%", "異動", "累積量(張)", "開", "高", "低"]
     st.dataframe(styled_table(df[cols], ["漲跌%"]),
                  width="stretch", hide_index=True, height=min(38 * len(df) + 40, 720))
     t = df.iloc[0].get("時間", "")
@@ -415,3 +431,59 @@ def intraday_chart(code, interval="5m"):
     st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG)
     st.caption("分鐘K來自 yfinance(約15分鐘延遲);**紫線=VWAP**(成交量加權均價,當沖常用:價在VWAP上偏多、下偏空)。"
                "盤中即時價請看上方看板。")
+
+
+def orderbook_panel(code):
+    """即時五檔買賣盤 + 內外盤力道 + 距漲跌停。"""
+    d = quote_detail(code)
+    if not d:
+        st.caption("五檔資料暫時無法取得(盤後/假日或雲端被擋)。")
+        return
+    bv, av = d["委買量"], d["委賣量"]
+    ratio = bv / av if av else 0
+    m = st.columns(3)
+    m[0].metric("內外盤比(委買/委賣)", f"{ratio:.2f}",
+                "委買強" if ratio > 1.2 else ("委賣強" if ratio < 0.83 else "平衡"))
+    m[1].metric("距漲停", f"{d['距漲停%']}%" if d["距漲停%"] is not None else "—")
+    m[2].metric("距跌停", f"{d['距跌停%']}%" if d["距跌停%"] is not None else "—")
+    rows = []
+    for p, v in reversed(d["賣盤"]):   # 賣5→賣1(由上往下越接近成交)
+        rows.append({"買/賣": "賣", "價": p, "張數": int(v)})
+    for p, v in d["買盤"]:             # 買1→買5
+        rows.append({"買/賣": "買", "價": p, "張數": int(v)})
+    bk = pd.DataFrame(rows)
+
+    def _row_color(r):
+        bg = "background-color:#eaffea" if r["買/賣"] == "賣" else "background-color:#ffecec"
+        return [bg] * len(r)
+
+    st.dataframe(bk.style.apply(_row_color, axis=1).format({"價": "{:.2f}"}),
+                 width="stretch", hide_index=True, height=388)
+    st.caption(f"資料時間 {d.get('時間','')}｜內外盤比 >1 = 委買較多(買盤積極)、<1 = 委賣較多;"
+               "距漲跌停越小越可能鎖死。來源:證交所 MIS。")
+
+
+def daytrade_pnl():
+    """當沖損益試算:手續費(可折扣)+ 證交稅當沖減半(0.15%)。"""
+    c = st.columns(4)
+    entry = c[0].number_input("買進價", value=100.0, step=0.5, key="dt_entry")
+    exit_ = c[1].number_input("賣出價", value=101.0, step=0.5, key="dt_exit")
+    lots = c[2].number_input("張數", value=1, min_value=1, step=1, key="dt_lots")
+    disc = c[3].number_input("手續費折數(如 0.6=六折)", value=1.0, min_value=0.1,
+                             max_value=1.0, step=0.1, key="dt_disc")
+    shares = lots * 1000
+    fee_rate = 0.001425 * disc
+    tax_rate = 0.0015  # 當沖證交稅減半
+    buy_cost = entry * shares
+    sell_amt = exit_ * shares
+    fee = (buy_cost + sell_amt) * fee_rate
+    tax = sell_amt * tax_rate
+    net = (sell_amt - buy_cost) - fee - tax
+    # 損益兩平:賣價需多少才能打平成本
+    be = entry * (1 + fee_rate) / (1 - fee_rate - tax_rate)
+    r = st.columns(4)
+    r[0].metric("價差損益", f"{(exit_-entry)*shares:,.0f}")
+    r[1].metric("手續費+稅", f"-{fee+tax:,.0f}")
+    r[2].metric("淨損益", f"{net:,.0f}", f"{net/buy_cost*100:+.2f}%" if buy_cost else None)
+    r[3].metric("損益兩平賣價", f"{be:.2f}", f"+{(be-entry)/entry*100:.2f}%")
+    st.caption("當沖證交稅減半(0.15%);手續費單邊 0.1425%×折數。實際以你券商收費為準。")

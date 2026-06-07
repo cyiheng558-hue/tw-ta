@@ -78,6 +78,33 @@ def quote(codes) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def quote_detail(code) -> dict:
+    """抓單一個股的即時五檔 + 漲跌停。回傳買賣盤、委買委賣量、距漲跌停等。"""
+    cid = _code_only(code)
+    msg = _quote_chunk([cid])
+    m = next((x for x in msg if x.get("c")), None)
+    if not m:
+        return {}
+
+    def _plist(s):
+        return [float(x) for x in (s or "").split("_") if x]
+
+    bid_p, bid_v = _plist(m.get("b")), _plist(m.get("g"))
+    ask_p, ask_v = _plist(m.get("a")), _plist(m.get("f"))
+    z = _num(m.get("z")) or _num(m.get("o")) or _num(m.get("y"))
+    y, u, w = _num(m.get("y")), _num(m.get("u")), _num(m.get("w"))
+    return {
+        "代號": m.get("c"), "名稱": m.get("n"), "成交": z, "昨收": y,
+        "漲停": u, "跌停": w,
+        "買盤": list(zip(bid_p, bid_v)),   # [(價,量), ...] 由高到低
+        "賣盤": list(zip(ask_p, ask_v)),
+        "委買量": sum(bid_v), "委賣量": sum(ask_v),
+        "距漲停%": round((u - z) / z * 100, 2) if (u and z) else None,
+        "距跌停%": round((z - w) / z * 100, 2) if (w and z) else None,
+        "時間": m.get("t"),
+    }
+
+
 def is_market_hours() -> bool:
     """是否為台股交易時間(平日 09:00–13:30)。"""
     now = _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=8)))

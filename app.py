@@ -157,12 +157,18 @@ with tab_day:
 
     st.divider()
     d1, d2 = st.columns([1, 1])
-    dcode = d1.text_input("分鐘K個股代號", value=st.session_state.get("st_code", "2330"),
+    dcode = d1.text_input("個股代號(分鐘K + 五檔)", value=st.session_state.get("st_code", "2330"),
                           key="day_code").strip()
     div = d2.radio("K線週期", ["1m", "5m"], index=1, horizontal=True, key="day_iv")
     if dcode:
-        st.markdown(f"**📈 {dcode} {name_of(dcode, names)} 當日分鐘走勢**")
+        st.markdown(f"**📈 {dcode} {name_of(dcode, names)} 當日盤中**")
         intraday_chart(dcode, div)
+        st.markdown("**📊 即時五檔買賣盤**")
+        orderbook_panel(dcode)
+
+    st.divider()
+    with st.expander("🧮 當沖損益試算(證交稅減半 + 手續費折扣)"):
+        daytrade_pnl()
 
 
 # ============================================================
