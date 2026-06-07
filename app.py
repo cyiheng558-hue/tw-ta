@@ -26,8 +26,9 @@ from fundamentals import (load_stock_names, name_of, valuation, revenue_yoy,
                           dividend_history, revenue_trend, pe_valuation)
 from chips import cumulative_net, foreign_holding, margin_short_ratio
 from news import latest_news
-from score import composite
+from score import composite, rank_codes
 from broker import broker_branch
+from sector import sector_strength
 from screener import screen, load_universe, DEFAULT_CONDITIONS
 from risk import suggest as risk_suggest
 from backtest import BACKTESTABLE
@@ -221,6 +222,11 @@ def c_news(code):
 @st.cache_data(ttl=1800, show_spinner=False)
 def c_broker(code, days):
     return broker_branch(code, days=days)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def c_sector(codes, days):
+    return sector_strength(list(codes), days=days)
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -810,9 +816,29 @@ with tab_swing:
 with tab_cmp:
     names = c_names()
     ind_map = c_industry()
-    cmp_mode = st.radio("模式", ["同業比較", "多股 PK"], horizontal=True, key="cmp_mode")
+    cmp_mode = st.radio("模式", ["同業比較", "多股 PK", "類股強弱"], horizontal=True, key="cmp_mode")
 
-    if cmp_mode == "同業比較":
+    if cmp_mode == "類股強弱":
+        st.caption("各產業近 N 個交易日的平均報酬(取自股池 universe.txt),看資金流向哪些類股。")
+        sdays = st.selectbox("期間(交易日)", [5, 10, 20, 60], index=2, key="sec_days")
+        with st.spinner("計算類股強弱..."):
+            secdf = c_sector(tuple(load_universe()), sdays)
+        if secdf.empty:
+            st.warning("資料不足。")
+        else:
+            secfig = go.Figure()
+            colors = ["#d62728" if v >= 0 else "#2ca02c" for v in secdf["平均報酬%"]]
+            secfig.add_trace(go.Bar(x=secdf["平均報酬%"], y=secdf["產業"], orientation="h",
+                                    marker_color=colors,
+                                    text=[f"{v:+.1f}%" for v in secdf["平均報酬%"]],
+                                    textposition="outside"))
+            secfig.update_layout(height=max(320, 36 * len(secdf)),
+                                 title=f"類股強弱 — 近{sdays}交易日平均報酬",
+                                 margin=dict(l=10, r=10, t=40, b=10),
+                                 yaxis=dict(autorange="reversed"))
+            st.plotly_chart(secfig, width="stretch", config=PLOTLY_CONFIG)
+            st.dataframe(styled_table(secdf), width="stretch", hide_index=True)
+    elif cmp_mode == "同業比較":
         base = st.text_input("以哪一檔為基準找同業", value=st.session_state.get("st_code", "2330"),
                              key="cmp_base").strip()
         if base:
@@ -885,6 +911,24 @@ with tab_cmp:
 # 分頁:自選股管理
 # ============================================================
 with tab_watch:
+    # 健診排行:一鍵把自選股全部評分排序
+    st.subheader("🩺 觀察清單健診排行")
+    st.caption("把自選股全部綜合評分並排序,快速看哪幾檔體質最好/最弱。第一次較慢(要抓不少資料),之後讀快取。")
+    if st.button("開始健診", type="primary", key="btn_health"):
+        wl = load_watchlist()
+        prog = st.progress(0.0)
+        rows = rank_codes(wl, progress_cb=lambda d, t: prog.progress(min(d / t, 1.0)))
+        prog.empty()
+        st.session_state["health_rows"] = rows
+    if st.session_state.get("health_rows"):
+        nm = c_names()
+        hdf = pd.DataFrame(st.session_state["health_rows"])
+        hdf.insert(1, "名稱", hdf["代號"].map(lambda c: nm.get(c, "")))
+        hdf = hdf.sort_values("總分", ascending=False).reset_index(drop=True)
+        st.dataframe(styled_table(hdf), width="stretch", hide_index=True)
+        st.caption("評分為技術+基本+籌碼的濃縮數字,非投資建議。")
+    st.divider()
+
     st.subheader("管理觀察清單(watchlist.txt)")
     st.caption("掃描分頁會用這份清單。新增/刪除後按儲存即可。")
     current = load_watchlist()

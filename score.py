@@ -144,6 +144,25 @@ def composite(code: str, e: pd.DataFrame = None, swing_trend: str = None,
     }
 
 
+def rank_codes(codes, period: str = "1y", progress_cb=None) -> list:
+    """把多檔股票綜合評分並回傳清單(未排序),給健診排行用。"""
+    from data import fetch
+    rows = []
+    for i, c in enumerate(codes):
+        try:
+            df = fetch(c, period=period)
+            if not df.empty and len(df) >= 60:
+                r = composite(c, e=enrich(df))
+                if "error" not in r:
+                    rows.append({"代號": c, "總分": r["總分"], "技術面": r["技術面"],
+                                 "基本面": r["基本面"], "籌碼面": r["籌碼面"], "評等": r["評等"]})
+        except Exception:
+            pass
+        if progress_cb:
+            progress_cb(i + 1, len(codes))
+    return rows
+
+
 if __name__ == "__main__":
     import sys
     try:

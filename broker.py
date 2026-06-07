@@ -9,6 +9,7 @@
 且可能有借券、避險等雜訊,請斟酌使用。
 """
 import re
+import time
 import datetime as _dt
 import pandas as pd
 import requests
@@ -58,11 +59,18 @@ def broker_branch(code: str, days: int = 1, top: int = 15) -> dict:
     # 往前抓足夠日曆天數以涵蓋 days 個交易日(粗略 1.6 倍 + 緩衝)
     start = end - _dt.timedelta(days=max(days * 2 + 4, 5)) if days > 1 else end
     params = {"no": cid, "from": start.strftime("%Y%m%d"), "to": end.strftime("%Y%m%d")}
-    try:
-        r = requests.get(_BASE, params=params, headers=_HDR, timeout=20)
-        html = r.text
-    except Exception as e:
-        print(f"  [分點] {code} 抓取失敗:{e}")
+    html = None
+    for attempt in range(3):  # HiStock 偶爾失敗/限流,自動重試
+        try:
+            r = requests.get(_BASE, params=params, headers=_HDR, timeout=20)
+            if r.status_code == 200 and r.text:
+                html = r.text
+                break
+        except Exception as e:
+            if attempt == 2:
+                print(f"  [分點] {code} 抓取失敗(已重試):{e}")
+        time.sleep(1.0 + attempt)
+    if not html:
         return {}
 
     rows = _ROW.findall(html)

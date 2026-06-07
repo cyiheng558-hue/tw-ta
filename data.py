@@ -8,6 +8,7 @@
 之後重複掃描直接讀本地檔,大幅加速。想強制更新可刪 cache/ 或傳 use_cache=False。
 """
 import os
+import time
 import datetime as _dt
 
 import pandas as pd
@@ -54,8 +55,17 @@ def fetch(code: str, period: str = "6mo", interval: str = "1d",
             pass  # 快取壞掉就重抓
 
     sym = to_yahoo_symbol(code)
-    df = yf.download(sym, period=period, interval=interval,
-                     progress=False, auto_adjust=True, threads=False)
+    df = None
+    for attempt in range(3):  # yfinance 偶爾失敗,自動重試
+        try:
+            df = yf.download(sym, period=period, interval=interval,
+                             progress=False, auto_adjust=True, threads=False)
+            if df is not None and not df.empty:
+                break
+        except Exception:
+            pass
+        if attempt < 2:
+            time.sleep(1.0 + attempt)
     if df is None or df.empty:
         return pd.DataFrame()
     if isinstance(df.columns, pd.MultiIndex):

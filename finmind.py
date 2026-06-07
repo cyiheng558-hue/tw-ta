@@ -12,6 +12,7 @@ fm_get(),好處:
 """
 import os
 import json
+import time
 import hashlib
 import datetime as _dt
 import requests
@@ -70,17 +71,24 @@ def fm_get(dataset: str, data_id=None, start_date=None, timeout: int = 20,
     token = os.environ.get("FINMIND_TOKEN")
     if token:
         req["token"] = token
-    try:
-        r = requests.get(API, params=req, timeout=timeout)
-        j = r.json()
-    except Exception as e:
-        print(f"  [FinMind] {dataset} {cid} 連線失敗:{e}")
-        return []
 
-    if j.get("msg") != "success":
-        # 流量上限或其他錯誤:不快取,讓下次重試
-        msg = j.get("msg", "")
-        if "level" in msg.lower() or "limit" in msg.lower() or "402" in str(j):
+    # 自動重試:網路錯誤或伺服器忙碌時最多試 3 次(間隔遞增)
+    j = None
+    for attempt in range(3):
+        try:
+            r = requests.get(API, params=req, timeout=timeout)
+            j = r.json()
+            break
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(1.0 + attempt)  # 1s, 2s
+                continue
+            print(f"  [FinMind] {dataset} {cid} 連線失敗(已重試):{e}")
+            return []
+
+    if not j or j.get("msg") != "success":
+        msg = (j or {}).get("msg", "")
+        if any(k in msg.lower() for k in ("level", "limit", "402")):
             print(f"  [FinMind] 流量/權限限制:{dataset} {cid}(建議設 FINMIND_TOKEN)")
         return []
 
