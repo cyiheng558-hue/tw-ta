@@ -32,6 +32,7 @@ from broker import broker_branch
 from sector import sector_strength
 from futures import futures_net_oi, summary as fut_summary
 from market import index_status, inst_total
+from realtime import quote as rt_quote, is_market_hours
 from screener import screen, load_universe, DEFAULT_CONDITIONS
 from risk import suggest as risk_suggest
 from backtest import BACKTESTABLE
@@ -225,6 +226,32 @@ def c_margin_ratio(code):
 @st.cache_data(ttl=300, show_spinner=False)  # 新聞快取 5 分鐘
 def c_news(code, extra=""):
     return latest_news(code, extra=extra)
+
+
+@st.cache_data(ttl=300, show_spinner=False)  # 盤後即時報價快取 5 分鐘
+def c_quote_off(code):
+    return rt_quote([code])
+
+
+@st.fragment(run_every="15s")
+def live_quote_panel(code):
+    """即時報價面板:交易時間每 15 秒自動更新(盤後讀快取,不重複打)。"""
+    df = rt_quote([code]) if is_market_hours() else c_quote_off(code)
+    if df.empty:
+        st.caption("📡 即時報價:暫時無法取得(盤後/假日,或來源限流/雲端被擋)。")
+        return
+    r = df.iloc[0]
+    q = st.columns(6)
+    q[0].metric("📡 即時成交", f"{r['成交']:.2f}",
+                f"{r['漲跌%']:+.2f}%" if r["漲跌%"] is not None else None)
+    q[1].metric("開", f"{r['開']:.2f}" if r["開"] is not None else "—")
+    q[2].metric("高", f"{r['高']:.2f}" if r["高"] is not None else "—")
+    q[3].metric("低", f"{r['低']:.2f}" if r["低"] is not None else "—")
+    q[4].metric("累積量(張)", f"{r['累積量(張)']:,}")
+    live = is_market_hours()
+    q[5].metric("狀態", "🟢 交易中" if live else "盤後")
+    st.caption(f"資料時間 {r.get('日期','')} {r.get('時間','')}｜"
+               f"{'交易時間每15秒自動更新' if live else '非交易時間,顯示最後成交'}｜來源:證交所 MIS")
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -538,7 +565,10 @@ with tab_stock:
             chg = (close - float(e["Close"].iloc[-2])) / float(e["Close"].iloc[-2]) * 100
             st.markdown(f"### {code} {nm}")
 
-            # 指標卡
+            # 即時報價(交易時間自動更新)
+            live_quote_panel(code)
+
+            # 指標卡(日線收盤,含 KD/RSI/乖離等)
             m = st.columns(5)
             m[0].metric("收盤", f"{close:.1f}", f"{chg:+.2f}%")
             m[1].metric("KD", f"{last['K']:.0f}/{last['D']:.0f}")

@@ -1,0 +1,87 @@
+# -*- coding: utf-8 -*-
+"""個股即時報價(證交所 MIS 官方即時行情 API)。
+
+來源:https://mis.twse.com.tw —— 官方即時行情,免費。
+特性與限制:
+  - 只有「交易時間(平日 09:00–13:30)」才會即時跳動;盤後/假日顯示最後成交。
+  - 屬近即時(官方本身約數秒~十數秒延遲),非逐筆 tick。
+  - 雲端(如 Streamlit Cloud)可能被擋或限流;本機通常正常。
+僅為資訊,非投資建議。
+"""
+import datetime as _dt
+import requests
+import pandas as pd
+
+_BASE = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
+_HDR = {"User-Agent": "Mozilla/5.0", "Referer": "https://mis.twse.com.tw/stock/index.jsp"}
+
+
+def _code_only(code):
+    return str(code).upper().replace(".TWO", "").replace(".TW", "").strip()
+
+
+def _num(x):
+    try:
+        return float(x)
+    except (ValueError, TypeError):
+        return None
+
+
+def quote(codes) -> pd.DataFrame:
+    """抓即時報價。回傳:代號/名稱/成交/漲跌/漲跌%/開/高/低/累積量/時間。"""
+    if isinstance(codes, str):
+        codes = [codes]
+    cids = [_code_only(c) for c in codes]
+    # 不知上市或上櫃,兩種都查,有資料的才回
+    ex_ch = "|".join([f"tse_{c}.tw|otc_{c}.tw" for c in cids])
+    try:
+        r = requests.get(_BASE, params={"ex_ch": ex_ch, "json": "1", "delay": "0"},
+                         headers=_HDR, timeout=10)
+        j = r.json()
+    except Exception as e:
+        print(f"  [即時] 抓取失敗:{e}")
+        return pd.DataFrame()
+    if j.get("rtcode") != "0000" or not j.get("msgArray"):
+        return pd.DataFrame()
+
+    rows = []
+    for m in j["msgArray"]:
+        if not m.get("c"):             # 略過對方交易所回傳的空白項
+            continue
+        y = _num(m.get("y"))           # 昨收
+        z = _num(m.get("z"))           # 當前成交
+        if z is None:                  # 尚無成交,退而求其次用開盤/昨收
+            z = _num(m.get("o")) or y
+        chg = (z - y) if (z is not None and y is not None) else None
+        pct = (chg / y * 100) if (chg is not None and y) else None
+        rows.append({
+            "代號": m.get("c"), "名稱": m.get("n"),
+            "成交": round(z, 2) if z is not None else None,
+            "漲跌": round(chg, 2) if chg is not None else None,
+            "漲跌%": round(pct, 2) if pct is not None else None,
+            "開": _num(m.get("o")), "高": _num(m.get("h")), "低": _num(m.get("l")),
+            "累積量(張)": int(_num(m.get("v")) or 0),
+            "時間": m.get("t"), "日期": m.get("d"),
+        })
+    return pd.DataFrame(rows)
+
+
+def is_market_hours() -> bool:
+    """是否為台股交易時間(平日 09:00–13:30)。"""
+    now = _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=8)))
+    if now.weekday() >= 5:
+        return False
+    t = now.hour * 60 + now.minute
+    return 9 * 60 <= t <= 13 * 60 + 30
+
+
+if __name__ == "__main__":
+    import sys
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+    codes = sys.argv[1:] or ["2330", "6488", "2603"]
+    print("交易時間中" if is_market_hours() else "目前非交易時間(顯示最後成交)")
+    df = quote(codes)
+    print(df.to_string(index=False) if not df.empty else "抓不到報價")
