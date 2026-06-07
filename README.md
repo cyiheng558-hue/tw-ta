@@ -205,7 +205,7 @@ FinMind 免費版有流量上限(匿名最嚴,且跟同 IP 的人共用)。兩�
 | 檔案 | 用途 |
 |------|------|
 | `app.py` | ⭐ Streamlit 網頁介面(主要入口、分頁邏輯) |
-| `assistant.py` | 左側小幫手(指標/功能/名詞問答;可選接 Claude API) |
+| `assistant.py` | 左側小幫手(知識庫問答;設 ANTHROPIC_API_KEY 即升級為 Claude 多輪對話) |
 | `ui_common.py` | UI 共用層:快取包裝、輔助函式、常數、即時報價、共用圖表 |
 | `tw_time.py` | 台北時區工具(避免雲端 UTC 差一天) |
 | `data.py` | yfinance 股價抓取 + 批次下載 + 本地快取 |
@@ -243,6 +243,16 @@ APP_PASSWORD = "你的新密碼"
 設定後預設的 `1524` 即失效(Secrets 優先),且建議用較長、非純數字的密碼。
 已內建:錯誤嘗試 5 次鎖定、安全比對(`hmac.compare_digest`)。
 > 提醒:此為「簡單進站密碼」,適合朋友間分享,非高強度帳號系統。
+
+## 💬 小幫手升級成 AI(選用)
+
+左側小幫手預設用內建知識庫(免費)。想升級成「什麼都能聊」的 Claude 多輪對話:
+1. 到 https://console.anthropic.com 申請 **API 金鑰**(付費,用多少算多少)。
+2. 設定金鑰:
+   - **雲端**:Streamlit Cloud → Settings → Secrets 貼 `ANTHROPIC_API_KEY = "你的金鑰"`。
+   - **本機**:`setx ANTHROPIC_API_KEY "你的金鑰"` 後重開程式。
+   - (可選)`ANTHROPIC_MODEL` 指定模型,預設 `claude-haiku-4-5-20251001`(便宜快速)。
+3. 設好後小幫手會自動切換成 🤖 Claude;沒設或呼叫失敗時自動退回知識庫,不會壞掉。
 
 ## 穩定性 / 測試
 

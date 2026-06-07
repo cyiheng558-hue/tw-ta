@@ -156,10 +156,24 @@ _FALLBACK = (
 )
 
 _SYSTEM = (
-    "你是一個台股技術分析 Streamlit 工具的內建小幫手。用繁體中文、簡潔口語回答關於技術指標、"
-    "籌碼面、基本面、當沖看盤、以及這個工具各功能怎麼用/在哪個分頁的問題。"
-    "務必聲明這些是教學說明、非投資建議,且不給投資建議/明牌。不要捏造工具沒有的功能。"
+    "你是『台股技術分析工具』裡的小幫手,個性親切、用繁體中文、簡潔口語回答。\n"
+    "你可以聊任何主題,但專長是:技術指標(KD/MACD/RSI/布林/VWAP…)、籌碼面(三大法人/"
+    "融資券/內外盤/量比/分點)、基本面(本益比/ROE/EPS/殖利率)、當沖與看盤觀念,以及"
+    "『這個工具怎麼用、功能在哪個分頁』。\n"
+    "工具的分頁:⚡當沖看盤(即時看板/異動掃描/分鐘K+VWAP/五檔/到價提醒/損益試算)、"
+    "🔍清單掃描、🎯條件篩選、📊個股分析(即時報價/評分雷達/K線/基本面/籌碼/回測/新聞)、"
+    "📈中線分析、🆚比較、🌡️盤勢資金、⚙️自選股管理。\n"
+    "重要規則:1) 絕不給具體投資建議、買賣建議、明牌或漲跌預測;被問『可以買嗎/會漲嗎』要"
+    "婉拒並改為解釋相關觀念或數據怎麼看。2) 不要捏造工具沒有的功能。3) 適時提醒『非投資建議』。"
+    "4) 回答盡量精簡,必要時用條列。"
 )
+
+_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+
+
+def using_llm() -> bool:
+    """目前是否會用 Claude 回答(有設金鑰即是)。"""
+    return bool(os.environ.get("ANTHROPIC_API_KEY"))
 
 
 def _norm(s):
@@ -184,27 +198,31 @@ def _kb_answer(q: str):
     return ans
 
 
-def _llm_answer(q: str, key: str) -> str:
+def _llm_answer(q: str, key: str, history=None) -> str:
     import anthropic
     client = anthropic.Anthropic(api_key=key)
-    msg = client.messages.create(
-        model="claude-haiku-4-5-20251001", max_tokens=600,
-        system=_SYSTEM, messages=[{"role": "user", "content": q}],
-    )
-    return "".join(getattr(b, "text", "") for b in msg.content)
+    # 把對話歷史(最近 10 則)轉成 Claude 格式,實現多輪對話
+    messages = []
+    for m in (history or [])[-10:]:
+        role = "assistant" if m.get("role") == "assistant" else "user"
+        messages.append({"role": role, "content": m.get("text", "")})
+    messages.append({"role": "user", "content": q})
+    msg = client.messages.create(model=_MODEL, max_tokens=800,
+                                 system=_SYSTEM, messages=messages)
+    return "".join(getattr(b, "text", "") for b in msg.content) or _kb_answer(q)
 
 
-def answer(q: str) -> str:
-    """回答問題。有 ANTHROPIC_API_KEY 用 Claude,否則用知識庫。"""
+def answer(q: str, history=None) -> str:
+    """回答問題。有 ANTHROPIC_API_KEY 用 Claude(可多輪對話),否則用知識庫。"""
     q = (q or "").strip()
     if not q:
         return _FALLBACK
     key = os.environ.get("ANTHROPIC_API_KEY")
     if key:
         try:
-            return _llm_answer(q, key)
-        except Exception:
-            pass
+            return _llm_answer(q, key, history)
+        except Exception as e:
+            return _kb_answer(q) + f"\n\n(AI 暫時無法回應:{type(e).__name__};已用內建知識庫回答)"
     return _kb_answer(q)
 
 

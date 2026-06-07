@@ -26,7 +26,7 @@ from charting import (resample_ohlcv, signal_markers, volume_profile,
                       support_resistance, candle_patterns)
 from screener import screen, load_universe, DEFAULT_CONDITIONS
 from risk import suggest as risk_suggest
-from assistant import answer as assistant_answer, QUICK
+from assistant import answer as assistant_answer, QUICK, using_llm
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WATCHLIST = os.path.join(HERE, "watchlist.txt")
@@ -95,7 +95,10 @@ from ui_common import *
 # ===================== 左側小幫手 =====================
 with st.sidebar:
     st.subheader("💬 小幫手")
-    st.caption("問我指標/功能/名詞,例:KD是什麼、怎麼設到價提醒、量比是什麼")
+    if using_llm():
+        st.caption("🤖 由 Claude AI 回答 — 什麼都能聊(技術/籌碼/工具用法/一般問題)")
+    else:
+        st.caption("📚 內建知識庫(免費)。想升級成 AI 對話?設定 ANTHROPIC_API_KEY 即可。")
     if "chat" not in st.session_state:
         st.session_state["chat"] = [{"role": "assistant",
                                      "text": "嗨!我是看盤小幫手 👋 想知道哪個指標、功能或名詞?直接問我。"}]
@@ -114,8 +117,11 @@ with st.sidebar:
         if st.form_submit_button("問") and _q:
             _pending = _q
     if _pending:
+        _hist = list(st.session_state["chat"])  # 傳對話歷史給 AI 做多輪對話
         st.session_state["chat"].append({"role": "user", "text": _pending})
-        st.session_state["chat"].append({"role": "assistant", "text": assistant_answer(_pending)})
+        with st.spinner("思考中…"):
+            _ans = assistant_answer(_pending, _hist)
+        st.session_state["chat"].append({"role": "assistant", "text": _ans})
         st.rerun()
     if len(st.session_state["chat"]) > 1 and st.button("清空對話", key="chat_clear"):
         st.session_state["chat"] = st.session_state["chat"][:1]
